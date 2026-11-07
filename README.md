@@ -1,29 +1,55 @@
 # Harness v1
 
-A small terminal conversation loop with tool calls and JSONL history.
+A small terminal conversation loop with Docker tool execution and JSONL history.
 
 ## Run
 
 Copy `.env.example` to `.env` and fill in `OPENAI_API_KEY` and `OPENAI_MODEL`.
 Choose a model that supports Responses API function calling and reasoning summaries.
+Docker must be installed and its engine running.
 
 ```sh
 uv run --env-file .env main.py
 ```
 
-Type `quit` or `exit` to finish.
+At startup, enter an existing folder the tools may read and modify. Press Enter to
+create or reuse the default `workspace/` folder in this project. Type `quit` or `exit`
+to finish the conversation.
+
+The harness builds a small Docker image and starts one container for the session.
+Subsequent starts reuse Docker's build cache. The selected host folder is mounted
+read/write at `/workspace` inside that container. Paths containing spaces work.
+Selecting a folder that contains the harness or its history is refused, so those
+files and credentials stay outside the tool workspace.
+
+The Python conversation loop and model API client run on the host. All tool calls,
+including `current_time`, execute inside Docker. There is no local execution fallback
+if Docker is unavailable. The container is removed on normal exit or when an exception
+unwinds the session; workspace files remain on disk.
+
+The container runs as the host user's UID/GID, with no network, a read-only root
+filesystem, and temporary writable `/tmp` storage. Only the selected host folder is
+shared. The image contains Python, timezone data, and the tool implementation; API
+credentials, chat history, and the rest of the harness are not copied into it.
+No Bash or file-editing tool is exposed to the model yet.
 
 ## Code flow
 
 - `main.py`: `start_agent()` reads user input; `run_loop()` calls the model until it
-  stops requesting tools.
+  stops requesting tools. `choose_workspace()` asks for the working folder.
 - `conversation.py`: `Conversation` owns the message list, turn number, and history
   file path. Its methods build message dictionaries and record them in context and JSONL.
-- `config.py`: history directory, system prompt path, and OpenAI model name. The paths
+- `sandbox.py`: `Sandbox` builds/starts the container, executes argument lists in it,
+  and removes it when the session ends.
+- `Dockerfile` and `.dockerignore`: define the tool environment and limit the build
+  context to the tool implementation and Dockerfile.
+- `config.py`: history directory, system prompt path, OpenAI model name, workspace
+  paths, sandbox image name, and tool timeout. Project paths
   are relative to the project directory. The model name is read from `OPENAI_MODEL` in
   the environment; it can also be set directly in this file.
 - `model.py`: `call_model()` makes the API request.
-- `tools.py`: one example tool, its schema, and a dictionary for finding the function.
+- `tools.py`: one example tool, its schema, host-side Docker dispatch, and the
+  container's tool-runner entry point.
 - `prompts/system_message.md`: system instructions, read once by `start_agent()`.
 
 The message list is created once, before the input loop, so follow-up questions retain
@@ -32,12 +58,12 @@ Tool calls are executed, and their results are included in the next model reques
 Terminal labels use uppercase square brackets: `[USER]`, `[REASONING]`, `[ASSISTANT]`,
 `[REFUSAL]`, `[TOOL]`, and `[TOOL RESULT]`. Other returned item types are saved and
 displayed with their type as the label.
-Each label is followed by a blank line before its content.
+Each label is followed by its content on a new line.
 
 The loop passes a single `conversation` object between turns:
 
 ```python
-conversation = Conversation()
+conversation = Conversation(workspace_directory, sandbox.container_id)
 conversation.append_text_message("Hello", message_type="user")
 response = call_model(client, conversation.model_input)
 ```
@@ -54,7 +80,27 @@ The turn counter and file writing also live in this method. The leading undersco
 marks it as an internal helper.
 
 Every run creates `chat_history/YYYY-MM-DD_HH-MM-SS_microseconds.jsonl`.
-Each line contains metadata and the original conversation item:
+The first line is a turn-zero session record, before any conversation items:
+
+```json
+{
+  "metadata": {
+    "timestamp": "2026-11-08T12:00:00+00:00",
+    "turn_number": 0,
+    "message_type": "session"
+  },
+  "session": {
+    "workspace_directory": "/absolute/path/to/project",
+    "container_workspace_directory": "/workspace",
+    "container_id": "the-session-container-id",
+    "sandbox_image": "harness-sandbox:local",
+    "model": "your-model-id"
+  }
+}
+```
+
+This session record is saved only to the file, never added to model input. Subsequent
+lines contain metadata and the original conversation item:
 
 ```json
 {"metadata":{"timestamp":"2026-11-07T12:00:00+00:00","turn_number":1,"message_type":"user"},"message":{"role":"user","content":"What time is it?"}}

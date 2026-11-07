@@ -1,4 +1,5 @@
 import json
+import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -24,9 +25,18 @@ TOOL_SCHEMAS = [
 ]
 
 
-def call_tool(name, arguments):
+def call_tool(sandbox, name, arguments):
+    """Send tool calls to the container, including the example time tool."""
     try:
-        result = TOOLS[name](**json.loads(arguments))
-        return result if isinstance(result, str) else json.dumps(result)
-    except Exception as error:
+        return sandbox.execute(["python", "-I", "/opt/harness/tools.py", name, arguments])
+    except RuntimeError as error:
         return json.dumps({"error": str(error)})
+
+
+if __name__ == "__main__":
+    # This entry point is invoked by Docker, not by the host conversation loop.
+    try:
+        result = TOOLS[sys.argv[1]](**json.loads(sys.argv[2]))
+        print(result if isinstance(result, str) else json.dumps(result))
+    except Exception as error:
+        print(json.dumps({"error": str(error)}))

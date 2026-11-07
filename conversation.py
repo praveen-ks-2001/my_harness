@@ -8,7 +8,7 @@ import config
 class Conversation:
     """Keep the model's messages and their JSONL history together."""
 
-    def __init__(self, history_directory=None):
+    def __init__(self, workspace_directory, container_id, history_directory=None):
         self.model_input = []
         self.turn_number = 0
 
@@ -18,7 +18,22 @@ class Conversation:
         history_directory.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
         self.history_path = history_directory / f"{timestamp}.jsonl"
-        self.history_path.touch(exist_ok=False)
+        session_record = {
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "turn_number": 0,
+                "message_type": "session",
+            },
+            "session": {
+                "workspace_directory": str(Path(workspace_directory).resolve()),
+                "container_workspace_directory": config.CONTAINER_WORKSPACE_DIRECTORY,
+                "container_id": container_id,
+                "sandbox_image": config.SANDBOX_IMAGE,
+                "model": config.OPENAI_MODEL,
+            },
+        }
+        with self.history_path.open("x", encoding="utf-8") as history_file:
+            history_file.write(json.dumps(session_record, ensure_ascii=False) + "\n")
 
     def append_text_message(self, text, message_type):
         """Build and record a system, developer, user, or assistant text message."""

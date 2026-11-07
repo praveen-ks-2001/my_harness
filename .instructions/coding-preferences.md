@@ -53,6 +53,12 @@
   timestamp, user-turn number, and message type alongside the original item.
 - Count a turn once per user input. The initial system message is turn 0; model calls
   and tool results within a user turn retain that turn's number.
+- Ask for one working folder at startup, defaulting to a reusable `workspace/` folder.
+  Keep the Python harness on the host and execute all tools inside Docker, including
+  Python scripts. Never silently fall back to local tool execution.
+- Share only the selected workspace with the container. Keep the harness, credentials,
+  and chat history outside it. Record workspace/container details in a turn-zero
+  session record before conversation items; this record is not model input.
 - Use uppercase terminal labels in square brackets, with a blank line before content:
   `[USER]`, `[ASSISTANT]`, `[REASONING]`, `[TOOL]`, and `[TOOL RESULT]`.
 - Do not create a test folder or persistent test suite unless the user asks to add one.
