@@ -9,8 +9,11 @@ Choose a model that supports Responses API function calling and reasoning summar
 Docker must be installed and its engine running.
 
 ```sh
-uv run --env-file .env main.py
+uv run main.py
 ```
+
+`config.py` loads the project's `.env` file automatically using `python-dotenv`.
+Variables already set in the environment take priority over values in `.env`.
 
 At startup, enter an existing folder the tools may read and modify. Press Enter to
 create or reuse the default `workspace/` folder in this project. Type `quit` or `exit`
@@ -27,11 +30,17 @@ including `current_time`, execute inside Docker. There is no local execution fal
 if Docker is unavailable. The container is removed on normal exit or when an exception
 unwinds the session; workspace files remain on disk.
 
-The container runs as the host user's UID/GID, with no network, a read-only root
+The container runs as the host user's UID/GID, with outbound networking, a read-only root
 filesystem, and temporary writable `/tmp` storage. Only the selected host folder is
 shared. The image contains Python, timezone data, and the tool implementation; API
 credentials, chat history, and the rest of the harness are not copied into it.
 No Bash or file-editing tool is exposed to the model yet.
+
+`SANDBOX_NETWORK = "bridge"` in `config.py` allows tools to download packages and access
+network services. No container ports are published. Install Python dependencies in a
+workspace virtual environment or use `pip install --target /workspace/.packages ...`,
+since the container's system directories remain read-only. Packages stored in the
+workspace persist across sessions. A tool-call approval model is not implemented yet.
 
 ## Code flow
 
@@ -44,7 +53,7 @@ No Bash or file-editing tool is exposed to the model yet.
 - `Dockerfile` and `.dockerignore`: define the tool environment and limit the build
   context to the tool implementation and Dockerfile.
 - `config.py`: history directory, system prompt path, OpenAI model name, workspace
-  paths, sandbox image name, and tool timeout. Project paths
+  paths, sandbox image/network settings, and tool timeout, grouped by purpose. Project paths
   are relative to the project directory. The model name is read from `OPENAI_MODEL` in
   the environment; it can also be set directly in this file.
 - `model.py`: `call_model()` makes the API request.
@@ -94,6 +103,7 @@ The first line is a turn-zero session record, before any conversation items:
     "container_workspace_directory": "/workspace",
     "container_id": "the-session-container-id",
     "sandbox_image": "harness-sandbox:local",
+    "sandbox_network": "bridge",
     "model": "your-model-id"
   }
 }

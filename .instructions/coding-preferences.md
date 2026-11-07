@@ -45,6 +45,8 @@
 
 - Centralize settings such as the history directory, prompt path, and model name in
   `config.py`. Keep secrets in the environment or the ignored `.env` file.
+- Load the project's `.env` file in `config.py` with `python-dotenv`, preserving values
+  already set in the environment. Group related settings with short one-line comments.
 - Store the system instructions in `prompts/system_message.md` and read them at startup.
 - Initialize one conversation before the user-input loop so history survives across turns.
 - Keep API input and file records distinct: `model_input` contains original API items;
@@ -59,6 +61,8 @@
 - Share only the selected workspace with the container. Keep the harness, credentials,
   and chat history outside it. Record workspace/container details in a turn-zero
   session record before conversation items; this record is not model input.
+- Allow Docker tools outbound network access for downloads and package installation.
+  The separate tool-call decision/approval model is a later feature, not implemented yet.
 - Use uppercase terminal labels in square brackets, with a blank line before content:
   `[USER]`, `[ASSISTANT]`, `[REASONING]`, `[TOOL]`, and `[TOOL RESULT]`.
 - Do not create a test folder or persistent test suite unless the user asks to add one.

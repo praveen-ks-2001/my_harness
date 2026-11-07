@@ -49,7 +49,7 @@ class Sandbox:
             ),
             "--user", f"{os.getuid()}:{os.getgid()}",
             "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",
-            "--network", "none", "--cap-drop", "ALL",
+            "--network", config.SANDBOX_NETWORK, "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges",
             "--env", "HOME=/tmp", "--env", "PYTHONDONTWRITEBYTECODE=1",
             self.image_id, "sleep", "infinity",

@@ -29,6 +29,7 @@ class Conversation:
                 "container_workspace_directory": config.CONTAINER_WORKSPACE_DIRECTORY,
                 "container_id": container_id,
                 "sandbox_image": config.SANDBOX_IMAGE,
+                "sandbox_network": config.SANDBOX_NETWORK,
                 "model": config.OPENAI_MODEL,
             },
         }
