@@ -8,3 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local credentials and conversation history
+.env
+.env.*
+!.env.example
+sessions/
+chat_history/
+examples/
+personal/
