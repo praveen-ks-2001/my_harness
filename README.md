@@ -50,25 +50,8 @@ credentials, chat history, and the rest of the harness are not copied into it.
 
 ### Adding a tool
 
-Write a type-hinted function with a Google-style docstring in a module under `tools/`,
-and decorate it with `@tool`:
-
-```python
-from tools.registry import tool
-
-
-@tool
-def current_time(timezone: str = "UTC") -> str:
-    """Get the current date and time in an IANA timezone.
-
-    Args:
-        timezone: IANA timezone name, such as Asia/Kolkata.
-    """
-```
-
-For a new module, add its name to the import in `tools/__init__.py`. That import runs
-each module's `@tool` decorators, which add the functions to `TOOLS` in
-`tools/registry.py`. At startup, `model.py` calls `tool_schemas()`: Pydantic turns the
+The steps and an example are at the top of [tools/\_\_init\_\_.py](tools/__init__.py).
+At startup, `model.py` calls `tool_schemas()` in `tools/registry.py`: Pydantic turns the
 type hints and defaults into JSON Schema, and `docstring-parser` adds the description and
 each `Args:` entry. A tool without a description, or with an undocumented argument,
 stops startup with an error. Before a tool runs, Pydantic checks the model's arguments
@@ -150,8 +133,9 @@ response = call_model(client, conversation.model_input)
 ```
 
 `append_text_message(text, message_type)` builds a message from plain text and its role.
-`append_response_item(item)` preserves an already-structured SDK output item, such as
-reasoning, an assistant message, or a function call. `append_tool_result(call_id, output)`
+`append_model_response(response)` preserves each already-structured SDK output item of
+one model call, such as reasoning, an assistant message, or a function call.
+`append_tool_result(call_id, output)`
 builds a function result.
 
 All three pass their API-ready item to `_record_item()`. That method writes a JSONL
@@ -193,6 +177,15 @@ All model outputs and tool results for a user turn share its number, even when t
 turn needs multiple model calls. `message_type` identifies the item, for example
 `system`, `user`, `assistant`, `reasoning`, `function_call`, or `tool_result`.
 The last turn number tells you how many user turns have been started in the session.
+
+Items returned by a model call also carry that call's `response_id` in their metadata,
+and the call's last item carries its token `usage`:
+
+```json
+{"metadata":{"timestamp":"…","turn_number":1,"message_type":"assistant","response_id":"resp_…","usage":{"input_tokens":1200,"input_tokens_details":{"cache_write_tokens":0,"cached_tokens":0},"output_tokens":85,"output_tokens_details":{"reasoning_tokens":64},"total_tokens":1285}},"message":{"id":"msg_…","type":"message","role":"assistant","content":[…]}}
+```
+
+Summing `usage` across the file gives the session's token use.
 
 `conversation.model_input` contains only the original API items, without the file metadata.
 Items are saved immediately, and `call_id` links each tool result to its call.

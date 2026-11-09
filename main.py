@@ -13,8 +13,7 @@ def run_loop(client, conversation, sandbox):
         response = call_model(client, conversation.model_input)
 
         # Keep every output item so the next call has the complete context.
-        for item in response.output:
-            conversation.append_response_item(item)
+        conversation.append_model_response(response)
 
         if response.status != "completed":
             raise RuntimeError(f"Model response did not complete: {response.status}")

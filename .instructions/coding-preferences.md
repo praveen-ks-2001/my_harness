@@ -25,7 +25,7 @@
 - Name variables after their contents and purpose. For example, `model_input` contains
   API-ready items, `api_item` is one such item, and `history_record` includes file metadata.
 - Name methods after the input shape or operation they handle. Prefer specific parallel
-  names such as `append_text_message`, `append_response_item`, and `append_tool_result`
+  names such as `append_text_message`, `append_model_response`, and `append_tool_result`
   over an ambiguous umbrella name beside a more specialized one.
 - Avoid vague or grandiose terminology. Use `message_type` instead of shadowing Python's
   built-in `type` when a descriptive argument name is needed.

@@ -28,7 +28,8 @@ take precedence. Keep changes small and discuss additional architecture before a
 - `Conversation.model_input` contains original API items, including reasoning and tool
   calls. Metadata wrappers are written only to `chat_history/`, never sent to the model.
 - Each history file starts with turn-zero session metadata identifying the workspace
-  and container. A turn advances once per user input, not once per model/tool call.
+  and container. Model output items carry `response_id` in metadata; the last item of
+  each model call also carries its token `usage`. A turn advances once per user input, not once per model/tool call.
 - Only the selected workspace is shared with Docker, at `/workspace`. The default is
   a reusable local `workspace/`; harness code, credentials, and history stay outside.
 - Tool schemas come from type hints and Google-style docstrings; every argument needs

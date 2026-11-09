@@ -43,18 +43,26 @@ class Conversation:
         api_item = {"role": message_type, "content": text}
         self._record_item(api_item, message_type)
 
-    def append_response_item(self, item):
-        """Preserve a complete SDK output item, including its continuation fields."""
-        api_item = item.model_dump(exclude_none=True)
-        message_type = api_item.get("role") or api_item["type"]
-        self._record_item(api_item, message_type)
+    def append_model_response(self, response):
+        """Preserve every output item of one model call, including continuation fields.
+
+        Each item's metadata names the response it came from; the last item's metadata
+        also holds the call's token usage.
+        """
+        for item in response.output:
+            api_item = item.model_dump(exclude_none=True)
+            message_type = api_item.get("role") or api_item["type"]
+            response_metadata = {"response_id": response.id}
+            if item is response.output[-1]:
+                response_metadata["usage"] = response.usage.model_dump() if response.usage else None
+            self._record_item(api_item, message_type, response_metadata)
 
     def append_tool_result(self, call_id, output):
         """Build the result item linked to the model's function call."""
         api_item = {"type": "function_call_output", "call_id": call_id, "output": output}
         self._record_item(api_item, "tool_result")
 
-    def _record_item(self, api_item, message_type):
+    def _record_item(self, api_item, message_type, response_metadata=None):
         """Write an enriched history record and keep the original item for the API."""
         turn_number = self.turn_number
         if message_type == "user":
@@ -65,6 +73,7 @@ class Conversation:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "turn_number": turn_number,
                 "message_type": message_type,
+                **(response_metadata or {}),
             },
             "message": api_item,
         }
