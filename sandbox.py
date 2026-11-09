@@ -6,10 +6,10 @@ from uuid import uuid4
 import config
 
 
-def _run_docker(*arguments):
+def _run_docker(*arguments, input_text=None):
     try:
         result = subprocess.run(
-            ["docker", *arguments], capture_output=True, text=True,
+            ["docker", *arguments], input=input_text, capture_output=True, text=True,
         )
     except FileNotFoundError:
         raise RuntimeError("Docker is not installed or is not on PATH") from None
@@ -55,15 +55,21 @@ class Sandbox:
             self.image_id, "sleep", "infinity",
         )
 
-    def execute(self, command):
-        """Execute an argument list in the container; never execute it on the host."""
+    def execute(self, command, input_text):
+        """Execute an argument list in the container; never execute it on the host.
+
+        input_text is sent through stdin, which has no size limit, unlike each
+        command-line argument, which Linux caps at 128 KB.
+        """
         if self.container_id is None:
             raise RuntimeError("The sandbox is not running")
         return _run_docker(
-            "exec", "--env", f"TOOL_TIMEOUT_SECONDS={config.TOOL_TIMEOUT_SECONDS}",
+            "exec", "--interactive",
+            "--env", f"TOOL_TIMEOUT_SECONDS={config.TOOL_TIMEOUT_SECONDS}",
             "--workdir", config.CONTAINER_WORKSPACE_DIRECTORY, self.container_id,
             # Allow the command runner time to save its partial output after a timeout.
             "timeout", "--kill-after=5", str(config.TOOL_TIMEOUT_SECONDS + 5), *command,
+            input_text=input_text,
         )
 
     def stop(self):

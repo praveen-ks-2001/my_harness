@@ -31,6 +31,8 @@ take precedence. Keep changes small and discuss additional architecture before a
   and container. A turn advances once per user input, not once per model/tool call.
 - Only the selected workspace is shared with Docker, at `/workspace`. The default is
   a reusable local `workspace/`; harness code, credentials, and history stay outside.
+- Tool arguments reach the container's runner as JSON on stdin, not as a command-line
+  argument, because Linux caps each argument at 128 KB.
 - One user turn makes at most `MAX_MODEL_CALLS_PER_TURN` model calls, then control
   returns to the user.
 - Tools have outbound network access. Install dependencies in the workspace, since

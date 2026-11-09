@@ -186,9 +186,9 @@ TOOL_SCHEMAS = [
 
 
 def call_tool(sandbox, name, arguments):
-    """Send registered tool calls to the container."""
+    """Send registered tool calls to the container, with the JSON arguments on stdin."""
     try:
-        return sandbox.execute(["python", "-I", "/opt/harness/tools.py", name, arguments])
+        return sandbox.execute(["python", "-I", "/opt/harness/tools.py", name], input_text=arguments)
     except RuntimeError as error:
         return json.dumps({"error": str(error)})
 
@@ -196,7 +196,7 @@ def call_tool(sandbox, name, arguments):
 if __name__ == "__main__":
     # This entry point is invoked by Docker, not by the host conversation loop.
     try:
-        result = TOOLS[sys.argv[1]](**json.loads(sys.argv[2]))
+        result = TOOLS[sys.argv[1]](**json.loads(sys.stdin.read()))
         print(result if isinstance(result, str) else json.dumps(result))
     except Exception as error:
         print(json.dumps({"error": str(error)}))

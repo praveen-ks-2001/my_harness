@@ -47,6 +47,11 @@ credentials, chat history, and the rest of the harness are not copied into it.
 | `run_command(command)` | Run Bash from the workspace and return stdout, stderr, exit code, and timeout status. |
 | `current_time(timezone="UTC")` | Return the current time in an IANA timezone. |
 
+Each tool call runs `docker exec --interactive ... python /opt/harness/tools.py <name>`
+and sends the model's JSON arguments on stdin. Only the tool name is a command-line
+argument, so large `write_file` content is not limited by Linux's 128 KB cap on a
+single argument.
+
 File paths are relative to the workspace, or absolute paths inside it. The file tools
 resolve paths and refuse traversal or symlinks that lead outside the workspace.
 `edit_file` preserves existing line endings and refuses missing or ambiguous matches.
