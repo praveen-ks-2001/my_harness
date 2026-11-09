@@ -110,15 +110,18 @@ workspace persist across sessions. A tool-call approval model is not implemented
   paths, sandbox image/network settings, and tool timeout, grouped by purpose. Project paths
   are relative to the project directory. The model name is read from `OPENAI_MODEL` in
   the environment; it can also be set directly in this file.
-- `model.py`: `call_model()` makes the API request.
+- `model.py`: `stream_model()` starts a streamed API request.
 - `tools/`: `registry.py` (the `@tool` decorator, `TOOLS`, schema building, and argument
   validation), the tool modules `files.py`, `shell.py`, and `clock.py`, and `runner.py`,
   the entry point Docker runs for each tool call.
 - `prompts/system_message.md`: system instructions, read once by `start_agent()`.
 
 The message list is created once, before the input loop, so follow-up questions retain
-earlier context. Reasoning summaries and assistant messages are printed when returned.
-Tool calls are executed, and their results are included in the next model request.
+earlier context. Responses are streamed: `print_stream()` in `main.py` prints reasoning
+summaries and assistant text as they arrive. Once the response completes,
+`stream.get_final_response()` returns the full response, which is saved, and its tool
+calls are executed one by one. Their results are included in the next model request.
+If a response ends without completing, `get_final_response()` raises and the session stops.
 Terminal labels use uppercase square brackets: `[USER]`, `[REASONING]`, `[ASSISTANT]`,
 `[REFUSAL]`, `[TOOL]`, and `[TOOL RESULT]`. Other returned item types are saved and
 displayed with their type as the label.
@@ -129,7 +132,10 @@ The loop passes a single `conversation` object between turns:
 ```python
 conversation = Conversation(workspace_directory, sandbox.container_id)
 conversation.append_text_message("Hello", message_type="user")
-response = call_model(client, conversation.model_input)
+with stream_model(client, conversation.model_input) as stream:
+    print_stream(stream)
+    response = stream.get_final_response()
+conversation.append_model_response(response)
 ```
 
 `append_text_message(text, message_type)` builds a message from plain text and its role.

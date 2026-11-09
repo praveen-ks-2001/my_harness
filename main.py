@@ -4,47 +4,55 @@ from openai import OpenAI
 
 import config
 from conversation import Conversation
-from model import call_model
+from model import stream_model
 from sandbox import Sandbox
+
+
+CONTENT_LABELS = {"output_text": "ASSISTANT", "refusal": "REFUSAL"}
+STREAMED_TEXT_EVENTS = {
+    "response.reasoning_summary_text.delta",
+    "response.output_text.delta",
+    "response.refusal.delta",
+}
+
+
+def print_stream(stream):
+    """Print reasoning summaries and assistant text while the model writes them."""
+    for event in stream:
+        if event.type == "response.reasoning_summary_part.added":
+            print("\n[REASONING]")
+        elif event.type == "response.content_part.added":
+            label = CONTENT_LABELS.get(event.part.type, event.part.type.upper())
+            print(f"\n[{label}]")
+        elif event.type in STREAMED_TEXT_EVENTS:
+            print(event.delta, end="", flush=True)
+        elif event.type in {"response.reasoning_summary_part.done", "response.content_part.done"}:
+            print()
+        elif event.type == "response.output_item.done":
+            # Function calls print when they run; other item types are only saved.
+            if event.item.type not in {"reasoning", "message", "function_call"}:
+                print(f"\n[{event.item.type.upper()}]\nSaved in chat history.")
 
 
 def run_loop(client, conversation, sandbox):
     for _ in range(config.MAX_MODEL_CALLS_PER_TURN):
-        response = call_model(client, conversation.model_input)
+        with stream_model(client, conversation.model_input) as stream:
+            print_stream(stream)
+            # Raises RuntimeError unless the response completed.
+            response = stream.get_final_response()
 
         # Keep every output item so the next call has the complete context.
         conversation.append_model_response(response)
 
-        if response.status != "completed":
-            raise RuntimeError(f"Model response did not complete: {response.status}")
-
-        called_tool = False
-        for item in response.output:
-            if item.type == "reasoning":
-                for summary in item.summary:
-                    print(f"\n[REASONING]\n{summary.text}")
-
-            elif item.type == "message":
-                for part in item.content:
-                    if part.type == "output_text":
-                        print(f"\n[ASSISTANT]\n{part.text}")
-                    elif part.type == "refusal":
-                        print(f"\n[REFUSAL]\n{part.refusal}")
-                    else:
-                        print(f"\n[{part.type.upper()}]\nSaved in chat history.")
-
-            elif item.type == "function_call":
-                called_tool = True
-                print(f"\n[TOOL]\n{item.name}({item.arguments})")
-                result = sandbox.call_tool(item.name, item.arguments)
-                print(f"\n[TOOL RESULT]\n{result}")
-                conversation.append_tool_result(item.call_id, result)
-
-            else:
-                print(f"\n[{item.type.upper()}]\nSaved in chat history.")
-
-        if not called_tool:
+        function_calls = [item for item in response.output if item.type == "function_call"]
+        if not function_calls:
             return
+
+        for item in function_calls:
+            print(f"\n[TOOL]\n{item.name}({item.arguments})")
+            result = sandbox.call_tool(item.name, item.arguments)
+            print(f"\n[TOOL RESULT]\n{result}")
+            conversation.append_tool_result(item.call_id, result)
 
     print(f"\n[INFO]\nStopped after {config.MAX_MODEL_CALLS_PER_TURN} model calls in this turn.")
 
