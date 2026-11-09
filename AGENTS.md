@@ -16,8 +16,8 @@ take precedence. Keep changes small and discuss additional architecture before a
 | [main.py](main.py) | Workspace selection, startup, terminal I/O, and the model/tool loop. |
 | [model.py](model.py) | OpenAI Responses API call. |
 | [conversation.py](conversation.py) | API input items, turn numbering, and JSONL history. |
-| [tools.py](tools.py) | Tool functions, schemas, dispatch, and the container's tool runner. |
-| [sandbox.py](sandbox.py) | Docker lifecycle and command execution. |
+| [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
+| [sandbox.py](sandbox.py) | Docker lifecycle, command execution, and `Sandbox.call_tool()`. |
 | [config.py](config.py) | Grouped settings and automatic `.env` loading. |
 | [prompts/system_message.md](prompts/system_message.md) | The agent's system instructions. |
 | [Dockerfile](Dockerfile), [.dockerignore](.dockerignore) | Tool environment and restricted build context. |
@@ -31,6 +31,9 @@ take precedence. Keep changes small and discuss additional architecture before a
   and container. A turn advances once per user input, not once per model/tool call.
 - Only the selected workspace is shared with Docker, at `/workspace`. The default is
   a reusable local `workspace/`; harness code, credentials, and history stay outside.
+- Tool schemas come from type hints and Google-style docstrings; every argument needs
+  an `Args:` entry or startup fails. The host only builds schemas; tool functions run
+  in Docker, so tool dependencies must also be installed in the Dockerfile.
 - Tool arguments reach the container's runner as JSON on stdin, not as a command-line
   argument, because Linux caps each argument at 128 KB.
 - One user turn makes at most `MAX_MODEL_CALLS_PER_TURN` model calls, then control

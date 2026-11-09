@@ -6,7 +6,6 @@ import config
 from conversation import Conversation
 from model import call_model
 from sandbox import Sandbox
-from tools import call_tool
 
 
 def run_loop(client, conversation, sandbox):
@@ -38,7 +37,7 @@ def run_loop(client, conversation, sandbox):
             elif item.type == "function_call":
                 called_tool = True
                 print(f"\n[TOOL]\n{item.name}({item.arguments})")
-                result = call_tool(sandbox, item.name, item.arguments)
+                result = sandbox.call_tool(item.name, item.arguments)
                 print(f"\n[TOOL RESULT]\n{result}")
                 conversation.append_tool_result(item.call_id, result)
 

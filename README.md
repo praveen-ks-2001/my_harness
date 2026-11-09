@@ -34,7 +34,8 @@ unwinds the session; workspace files remain on disk.
 
 The container runs as the host user's UID/GID, with outbound networking, a read-only root
 filesystem, and temporary writable `/tmp` storage. Only the selected host folder is
-shared. The image contains Python, Bash, Git, ripgrep, timezone data, and the tool implementation; API
+shared. The image contains Python, Bash, Git, ripgrep, timezone data, Pydantic, `docstring-parser`,
+and the `tools/` package; API
 credentials, chat history, and the rest of the harness are not copied into it.
 
 ## Tools
@@ -42,15 +43,48 @@ credentials, chat history, and the rest of the harness are not copied into it.
 | Tool | Behavior |
 | --- | --- |
 | `read_file(path, start_line=1, end_line=None)` | Read UTF-8 text with one-based line numbers; optional bounds are inclusive. |
-| `write_file(path, content)` | Create a new UTF-8 file and missing parent folders; refuse overwrites. |
+| `write_file(path, content, overwrite=False)` | Write a UTF-8 file and missing parent folders; replace an existing file only when `overwrite` is true. |
 | `edit_file(path, old_text, new_text)` | Replace an exact, nonempty text match that occurs only once. |
 | `run_command(command)` | Run Bash from the workspace and return stdout, stderr, exit code, and timeout status. |
 | `current_time(timezone="UTC")` | Return the current time in an IANA timezone. |
 
-Each tool call runs `docker exec --interactive ... python /opt/harness/tools.py <name>`
+### Adding a tool
+
+Write a type-hinted function with a Google-style docstring in a module under `tools/`,
+and decorate it with `@tool`:
+
+```python
+from tools.registry import tool
+
+
+@tool
+def current_time(timezone: str = "UTC") -> str:
+    """Get the current date and time in an IANA timezone.
+
+    Args:
+        timezone: IANA timezone name, such as Asia/Kolkata.
+    """
+```
+
+For a new module, add its name to the import in `tools/__init__.py`. That import runs
+each module's `@tool` decorators, which add the functions to `TOOLS` in
+`tools/registry.py`. At startup, `model.py` calls `tool_schemas()`: Pydantic turns the
+type hints and defaults into JSON Schema, and `docstring-parser` adds the description and
+each `Args:` entry. A tool without a description, or with an undocumented argument,
+stops startup with an error. Before a tool runs, Pydantic checks the model's arguments
+against its type hints and returns any mismatch to the model as an error.
+
+Tools run inside Docker, so a tool's third-party imports must also be installed in the
+`Dockerfile`, pinned to the same versions as `uv.lock`.
+
+### How a call reaches the container
+
+`Sandbox.call_tool()` runs `docker exec --interactive ... python -P -m tools.runner <name>`
 and sends the model's JSON arguments on stdin. Only the tool name is a command-line
 argument, so large `write_file` content is not limited by Linux's 128 KB cap on a
-single argument.
+single argument. `-P` stops files in `/workspace` from shadowing the tool package's
+imports. The image sets `PYTHONPATH=/opt/harness` so the package is importable, which
+also makes it importable from workspace scripts.
 
 File paths are relative to the workspace, or absolute paths inside it. The file tools
 resolve paths and refuse traversal or symlinks that lead outside the workspace.
@@ -84,7 +118,8 @@ workspace persist across sessions. A tool-call approval model is not implemented
 - `conversation.py`: `Conversation` owns the message list, turn number, and history
   file path. Its methods build message dictionaries and record them in context and JSONL.
 - `sandbox.py`: `Sandbox` builds/starts the container, executes argument lists in it,
-  and removes it when the session ends.
+  sends tool calls to the container's runner with `call_tool()`, and removes the
+  container when the session ends.
 - `Dockerfile` and `.dockerignore`: define the tool environment and limit the build
   context to the tool implementation and Dockerfile.
 - `config.py`: history directory, system prompt path, OpenAI model name, model-call
@@ -93,8 +128,9 @@ workspace persist across sessions. A tool-call approval model is not implemented
   are relative to the project directory. The model name is read from `OPENAI_MODEL` in
   the environment; it can also be set directly in this file.
 - `model.py`: `call_model()` makes the API request.
-- `tools.py`: file tools, command execution, current time, schemas, host-side Docker dispatch, and the
-  container's tool-runner entry point.
+- `tools/`: `registry.py` (the `@tool` decorator, `TOOLS`, schema building, and argument
+  validation), the tool modules `files.py`, `shell.py`, and `clock.py`, and `runner.py`,
+  the entry point Docker runs for each tool call.
 - `prompts/system_message.md`: system instructions, read once by `start_agent()`.
 
 The message list is created once, before the input loop, so follow-up questions retain

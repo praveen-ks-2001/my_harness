@@ -1,6 +1,9 @@
 import config
+# Importing tools.registry first runs tools/__init__.py, which registers every tool.
+from tools.registry import tool_schemas
 
-from tools import TOOL_SCHEMAS
+
+TOOL_SCHEMAS = tool_schemas()
 
 
 def call_model(client, model_input):

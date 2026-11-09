@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -71,6 +72,14 @@ class Sandbox:
             "timeout", "--kill-after=5", str(config.TOOL_TIMEOUT_SECONDS + 5), *command,
             input_text=input_text,
         )
+
+    def call_tool(self, name, arguments):
+        """Run one tool through the container's tool runner and return its printed result."""
+        try:
+            # -P keeps files in /workspace from shadowing the tool package's imports.
+            return self.execute(["python", "-P", "-m", "tools.runner", name], input_text=arguments)
+        except RuntimeError as error:
+            return json.dumps({"error": str(error)})
 
     def stop(self):
         if self.container_id is not None:
