@@ -1,6 +1,8 @@
 # Harness v1
 
-A small terminal conversation loop with Docker tool execution and JSONL history.
+A small terminal agent with Docker tool execution and JSONL history. It is a base for
+personal applications and custom tools, where every part of the agent's behavior is
+visible and under your control.
 
 ## Run
 
@@ -71,14 +73,17 @@ workspace persist across sessions. A tool-call approval model is not implemented
 ## Code flow
 
 - `main.py`: `start_agent()` reads user input; `run_loop()` calls the model until it
-  stops requesting tools. `choose_workspace()` asks for the working folder.
+  stops requesting tools, or until `MAX_MODEL_CALLS_PER_TURN` calls have been made in
+  that turn. It then prints an `[INFO]` notice and waits for the next user input.
+  `choose_workspace()` asks for the working folder.
 - `conversation.py`: `Conversation` owns the message list, turn number, and history
   file path. Its methods build message dictionaries and record them in context and JSONL.
 - `sandbox.py`: `Sandbox` builds/starts the container, executes argument lists in it,
   and removes it when the session ends.
 - `Dockerfile` and `.dockerignore`: define the tool environment and limit the build
   context to the tool implementation and Dockerfile.
-- `config.py`: history directory, system prompt path, OpenAI model name, workspace
+- `config.py`: history directory, system prompt path, OpenAI model name, model-call
+  limit per turn, workspace
   paths, sandbox image/network settings, and tool timeout, grouped by purpose. Project paths
   are relative to the project directory. The model name is read from `OPENAI_MODEL` in
   the environment; it can also be set directly in this file.

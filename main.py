@@ -10,7 +10,7 @@ from tools import call_tool
 
 
 def run_loop(client, conversation, sandbox):
-    while True:
+    for _ in range(config.MAX_MODEL_CALLS_PER_TURN):
         response = call_model(client, conversation.model_input)
 
         # Keep every output item so the next call has the complete context.
@@ -47,6 +47,8 @@ def run_loop(client, conversation, sandbox):
 
         if not called_tool:
             return
+
+    print(f"\n[INFO]\nStopped after {config.MAX_MODEL_CALLS_PER_TURN} model calls in this turn.")
 
 
 def choose_workspace():

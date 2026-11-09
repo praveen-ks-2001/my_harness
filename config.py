@@ -10,6 +10,7 @@ load_dotenv(PROJECT_DIRECTORY / ".env")
 
 # Model settings.
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "")
+MAX_MODEL_CALLS_PER_TURN = 20
 
 # Prompt and conversation history.
 SYSTEM_MESSAGE_FILE = PROJECT_DIRECTORY / "prompts" / "system_message.md"
