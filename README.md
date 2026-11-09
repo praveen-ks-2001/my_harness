@@ -32,9 +32,35 @@ unwinds the session; workspace files remain on disk.
 
 The container runs as the host user's UID/GID, with outbound networking, a read-only root
 filesystem, and temporary writable `/tmp` storage. Only the selected host folder is
-shared. The image contains Python, timezone data, and the tool implementation; API
+shared. The image contains Python, Bash, Git, ripgrep, timezone data, and the tool implementation; API
 credentials, chat history, and the rest of the harness are not copied into it.
-No Bash or file-editing tool is exposed to the model yet.
+
+## Tools
+
+| Tool | Behavior |
+| --- | --- |
+| `read_file(path, start_line=1, end_line=None)` | Read UTF-8 text with one-based line numbers; optional bounds are inclusive. |
+| `write_file(path, content)` | Create a new UTF-8 file and missing parent folders; refuse overwrites. |
+| `edit_file(path, old_text, new_text)` | Replace an exact, nonempty text match that occurs only once. |
+| `run_command(command)` | Run Bash from the workspace and return stdout, stderr, exit code, and timeout status. |
+| `current_time(timezone="UTC")` | Return the current time in an IANA timezone. |
+
+File paths are relative to the workspace, or absolute paths inside it. The file tools
+resolve paths and refuse traversal or symlinks that lead outside the workspace.
+`edit_file` preserves existing line endings and refuses missing or ambiguous matches.
+
+`run_command` supports shell syntax, scripts, searches (`rg`), Git, and package installation.
+Every call starts in the workspace; a `cd` does not persist into the next call.
+Nonzero exits are returned to the model as command results rather than hidden:
+
+```json
+{"stdout":"","stderr":"command error","exit_code":1,"timed_out":false}
+```
+
+Commands use `TOOL_TIMEOUT_SECONDS` from `config.py`. On timeout, the command's process
+group is killed and any captured output is returned with `exit_code: 124` and
+`timed_out: true`. The Docker execution timeout gives the runner five extra seconds
+to return that result.
 
 `SANDBOX_NETWORK = "bridge"` in `config.py` allows tools to download packages and access
 network services. No container ports are published. Install Python dependencies in a
@@ -57,7 +83,7 @@ workspace persist across sessions. A tool-call approval model is not implemented
   are relative to the project directory. The model name is read from `OPENAI_MODEL` in
   the environment; it can also be set directly in this file.
 - `model.py`: `call_model()` makes the API request.
-- `tools.py`: one example tool, its schema, host-side Docker dispatch, and the
+- `tools.py`: file tools, command execution, current time, schemas, host-side Docker dispatch, and the
   container's tool-runner entry point.
 - `prompts/system_message.md`: system instructions, read once by `start_agent()`.
 

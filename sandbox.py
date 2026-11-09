@@ -60,8 +60,10 @@ class Sandbox:
         if self.container_id is None:
             raise RuntimeError("The sandbox is not running")
         return _run_docker(
-            "exec", "--workdir", config.CONTAINER_WORKSPACE_DIRECTORY, self.container_id,
-            "timeout", "--kill-after=5", str(config.TOOL_TIMEOUT_SECONDS), *command,
+            "exec", "--env", f"TOOL_TIMEOUT_SECONDS={config.TOOL_TIMEOUT_SECONDS}",
+            "--workdir", config.CONTAINER_WORKSPACE_DIRECTORY, self.container_id,
+            # Allow the command runner time to save its partial output after a timeout.
+            "timeout", "--kill-after=5", str(config.TOOL_TIMEOUT_SECONDS + 5), *command,
         )
 
     def stop(self):

@@ -7,6 +7,8 @@
 - Discuss meaningful architectural choices and their tradeoffs before introducing
   additional structure. A suggestion is not approval to implement extra features.
 - Complete changes the user has requested without repeatedly asking for confirmation.
+- After making changes, include a suggested one-line Git commit message in the final
+  response. Do not create a commit unless the user asks for one.
 - Avoid speculative infrastructure: command-line argument parsers, provider frameworks,
   plugin systems, tracing, Docker, and subagents should arrive when they are needed.
 - Reference repositories provide inspiration for simple modular code. Do not repeatedly
