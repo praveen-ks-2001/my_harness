@@ -106,7 +106,7 @@ compaction/               compact.py, prompts/
 observability/            tracing.py (Phoenix traces of model calls)
 sandbox/                  sandbox.py (Docker side of the host)
 tools/                    tool package that runs inside Docker
-utils/terminal.py         terminal input and output
+utils/terminal.py         terminal input (prompt_toolkit) and output (Rich)
 ```
 
 - `main.py`: `start_agent()` reads user input; `run_loop()` calls the model until it
@@ -135,8 +135,11 @@ utils/terminal.py         terminal input and output
 - `tools/`: `registry.py` (the `@tool` decorator, `TOOLS`, schema building, and argument
   validation), the tool modules `files.py`, `shell.py`, and `clock.py`, and `runner.py`,
   the entry point Docker runs for each tool call.
-- `utils/terminal.py`: `choose_workspace()` asks for the working folder; `print_stream()`
-  prints a streamed response.
+- `utils/terminal.py`: all terminal input and output. Input uses prompt_toolkit: Up/Down
+  recall earlier messages, Tab completes `/compact` and folder paths, a multi-line
+  paste stays one message, and Esc+Enter or Ctrl+J adds a new line (most terminals send
+  Shift+Enter as plain Enter, which sends the message). Output uses Rich: colored labels, assistant answers rendered
+  as Markdown while they stream, and tool arguments and results shown as highlighted JSON.
 
 The message list is created once, before the input loop, so follow-up questions retain
 earlier context. Responses are streamed: `print_stream()` in `utils/terminal.py` prints reasoning

@@ -1,38 +1,129 @@
+import json
 from pathlib import Path
+
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import PathCompleter, WordCompleter
+from prompt_toolkit.key_binding import KeyBindings
+from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.text import Text
 
 import config
 
 
-CONTENT_LABELS = {"output_text": "ASSISTANT", "refusal": "REFUSAL"}
-STREAMED_TEXT_EVENTS = {
-    "response.reasoning_summary_text.delta",
-    "response.output_text.delta",
-    "response.refusal.delta",
+# Rich prints colored output; prompt_toolkit reads input with editing, history
+# (Up/Down arrows), Tab completion, and multi-line paste kept as one message.
+console = Console()
+
+# Terminals send the same key code for Enter and Shift+Enter, so Enter always sends the
+# message. Esc then Enter, or Ctrl+J, inserts a new line instead.
+newline_keys = KeyBindings()
+
+
+@newline_keys.add("escape", "enter")
+@newline_keys.add("c-j")
+def insert_newline(event):
+    event.current_buffer.insert_text("\n")
+
+
+user_prompt = PromptSession(
+    completer=WordCompleter(["/compact", "quit", "exit"], sentence=True),
+    key_bindings=newline_keys,
+)
+folder_prompt = PromptSession(completer=PathCompleter(only_directories=True, expanduser=True))
+
+LABEL_STYLES = {
+    "USER": "bold green",
+    "ASSISTANT": "bold cyan",
+    "REASONING": "bold magenta",
+    "REFUSAL": "bold red",
+    "TOOL": "bold yellow",
+    "TOOL RESULT": "bold yellow",
+    "COMPACTION": "bold blue",
+    "ERROR": "bold red",
 }
+CONTENT_LABELS = {"output_text": "ASSISTANT", "refusal": "REFUSAL"}
+
+
+def print_label(label):
+    console.print(Text(f"\n[{label}]", style=LABEL_STYLES.get(label, "bold white")))
+
+
+def print_notice(label, text):
+    """Print a label and a line of plain text, such as [INFO] or [ERROR] messages."""
+    print_label(label)
+    console.print(Text(text))
+
+
+def read_user_message():
+    print_label("USER")
+    return user_prompt.prompt("> ").strip()
 
 
 def print_stream(stream):
-    """Print reasoning summaries and assistant text while the model writes them."""
+    """Print reasoning summaries and assistant text while the model writes them.
+
+    Assistant text is re-rendered as Markdown on every new piece, so headings, lists,
+    and code blocks appear formatted while the answer streams in.
+    """
+    answer = None
     for event in stream:
         if event.type == "response.reasoning_summary_part.added":
-            print("\n[REASONING]")
+            print_label("REASONING")
+        elif event.type == "response.reasoning_summary_text.delta":
+            console.print(Text(event.delta, style="dim italic"), end="")
+        elif event.type == "response.reasoning_summary_part.done":
+            console.print()
         elif event.type == "response.content_part.added":
             label = CONTENT_LABELS.get(event.part.type, event.part.type.upper())
-            print(f"\n[{label}]")
-        elif event.type in STREAMED_TEXT_EVENTS:
-            print(event.delta, end="", flush=True)
-        elif event.type in {"response.reasoning_summary_part.done", "response.content_part.done"}:
-            print()
+            print_label(label)
+            if label == "ASSISTANT":
+                answer_text = ""
+                answer = Live(Markdown(""), console=console, refresh_per_second=12, vertical_overflow="visible")
+                answer.start()
+        elif event.type == "response.output_text.delta":
+            answer_text += event.delta
+            answer.update(Markdown(answer_text))
+        elif event.type == "response.refusal.delta":
+            console.print(Text(event.delta, style="red"), end="")
+        elif event.type == "response.content_part.done":
+            if answer is not None:
+                answer.stop()
+                answer = None
+            else:
+                console.print()
         elif event.type == "response.output_item.done":
             # Function calls print when they run; other item types are only saved.
             if event.item.type not in {"reasoning", "message", "function_call"}:
-                print(f"\n[{event.item.type.upper()}]\nSaved in chat history.")
+                print_notice(event.item.type.upper(), "Saved in chat history.")
+
+
+def print_tool_call(name, arguments):
+    print_label("TOOL")
+    console.print(Text(name, style="yellow"))
+    console.print(Syntax(pretty_json(arguments), "json", word_wrap=True))
+
+
+def print_tool_result(result):
+    print_label("TOOL RESULT")
+    console.print(Panel(Syntax(pretty_json(result), "json", word_wrap=True), border_style="dim"))
+
+
+def pretty_json(text):
+    """Indent JSON for display; return other text unchanged."""
+    try:
+        return json.dumps(json.loads(text), indent=2, ensure_ascii=False)
+    except json.JSONDecodeError:
+        return text
 
 
 def choose_workspace():
-    print(f"[WORKSPACE]\nEnter a working folder, or press Enter for {config.DEFAULT_WORKSPACE_DIRECTORY}")
+    print_notice("WORKSPACE", f"Enter a working folder (Tab completes paths), or press Enter for {config.DEFAULT_WORKSPACE_DIRECTORY}")
     while True:
-        selected_directory = input("\nFolder: ").strip()
+        selected_directory = folder_prompt.prompt("Folder: ").strip()
         if selected_directory:
             workspace_directory = Path(selected_directory).expanduser().resolve()
         else:
@@ -40,4 +131,4 @@ def choose_workspace():
             workspace_directory.mkdir(parents=True, exist_ok=True)
         if workspace_directory.is_dir():
             return workspace_directory
-        print("\n[ERROR]\nThat folder does not exist. Please choose an existing folder.")
+        print_notice("ERROR", "That folder does not exist. Please choose an existing folder.")

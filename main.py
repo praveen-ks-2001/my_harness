@@ -15,18 +15,25 @@ from observability.tracing import (
     trace_turn,
 )
 from sandbox.sandbox import Sandbox
-from utils.terminal import choose_workspace, print_stream
+from utils.terminal import (
+    choose_workspace,
+    print_notice,
+    print_stream,
+    print_tool_call,
+    print_tool_result,
+    read_user_message,
+)
 
 
 def compact(client, conversation, trigger):
     """Compact the conversation and report the result; return False if it failed."""
     tokens_before = conversation.estimated_input_tokens()
-    print(f"\n[COMPACTION]\nSummarizing about {tokens_before:,} tokens ({trigger})...")
+    print_notice("COMPACTION", f"Summarizing about {tokens_before:,} tokens ({trigger})...")
     with trace_compaction(trigger, tokens_before) as compaction_span:
         try:
             compact_conversation(client, conversation, trigger)
         except (OpenAIError, RuntimeError) as error:
-            print(f"\n[ERROR]\nCompaction failed: {error}\nType continue to retry, or /compact.")
+            print_notice("ERROR", f"Compaction failed: {error}\nType continue to retry, or /compact.")
             compaction_span.set_output(value=f"Failed: {error}")
             mark_failed(compaction_span, message=str(error))
             return False
@@ -58,14 +65,14 @@ def run_loop(client, conversation, sandbox):
             return response.output_text
 
         for item in function_calls:
-            print(f"\n[TOOL]\n{item.name}({item.arguments})")
+            print_tool_call(item.name, item.arguments)
             with trace_tool(item.name, item.arguments) as tool_span:
                 result = sandbox.call_tool(item.name, item.arguments)
                 record_tool_result(tool_span, result=result)
-            print(f"\n[TOOL RESULT]\n{result}")
+            print_tool_result(result)
             conversation.append_tool_result(item.call_id, result)
 
-    print(f"\n[INFO]\nStopped after {config.MAX_MODEL_CALLS_PER_TURN} model calls in this turn.")
+    print_notice("INFO", f"Stopped after {config.MAX_MODEL_CALLS_PER_TURN} model calls in this turn.")
     return None
 
 
@@ -75,7 +82,7 @@ def start_agent():
 
     with OpenAI() as client:
         workspace_directory = choose_workspace()
-        print("\n[SANDBOX]\nPreparing the Docker image and workspace container...")
+        print_notice("SANDBOX", "Preparing the Docker image and workspace container...")
         with Sandbox(workspace_directory) as sandbox:
             conversation = Conversation(workspace_directory, sandbox.container_id)
             container_history_file = f"{config.CONTAINER_HISTORY_DIRECTORY}/{conversation.history_path.name}"
@@ -84,13 +91,14 @@ def start_agent():
                 history_directory=config.CONTAINER_HISTORY_DIRECTORY,
             )
             conversation.append_text_message(system_message, message_type="system")
-            print(f"\n[HISTORY]\n{conversation.history_path}\n\n[INFO]\nType quit to exit, or /compact to summarize the conversation so far.")
+            print_notice("HISTORY", str(conversation.history_path))
+            print_notice("INFO", "Type quit to exit, or /compact to summarize the conversation so far. Tab completes commands; Up/Down recall earlier messages.")
 
             # One Phoenix session per run, named after its history file.
             with trace_session(conversation.history_path.stem):
                 while True:
                     try:
-                        user_message = input("\n[USER]\n").strip()
+                        user_message = read_user_message()
                     except (EOFError, KeyboardInterrupt):
                         print()
                         break
@@ -115,7 +123,7 @@ if __name__ == "__main__":
     try:
         start_agent()
     except (KeyboardInterrupt, EOFError):
-        print("\n[INFO]\nSession stopped.")
+        print_notice("INFO", "Session stopped.")
     except (RuntimeError, ValueError, OSError) as error:
-        print(f"\n[ERROR]\n{error}")
+        print_notice("ERROR", str(error))
         raise SystemExit(1)

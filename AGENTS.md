@@ -16,7 +16,7 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 | Location | Responsibility |
 | --- | --- |
 | [main.py](main.py) | Startup, the user-input loop, and the model/tool loop. |
-| [utils/terminal.py](utils/terminal.py) | Workspace prompt and streamed-output printing. |
+| [utils/terminal.py](utils/terminal.py) | All terminal I/O: prompt_toolkit input (history, Tab completion, paste) and Rich output (colored labels, Markdown answers, JSON tool calls). |
 | [agent/model.py](agent/model.py) | Streamed OpenAI Responses API call. |
 | [agent/conversation.py](agent/conversation.py) | API input items, turn numbering, and JSONL history. |
 | [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions; `{history_file}` and `{history_directory}` are filled in by `start_agent()`. |
