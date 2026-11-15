@@ -103,6 +103,7 @@ Code is grouped by feature; each folder keeps its own prompts.
 main.py, config.py        entry point and settings
 agent/                    the main model: model.py, conversation.py, prompts/
 compaction/               compact.py, prompts/
+observability/            tracing.py (Phoenix traces of model calls)
 sandbox/                  sandbox.py (Docker side of the host)
 tools/                    tool package that runs inside Docker
 utils/terminal.py         terminal input and output
@@ -124,6 +125,7 @@ utils/terminal.py         terminal input and output
 - `compaction/compact.py`: `needs_compaction()` and `compact_conversation()`, which also
   makes the tool-free summary call; `compaction/prompts/` holds its system prompt and
   two templates. See Compaction below.
+- `observability/tracing.py`: `start_tracing()`, called first in `start_agent()`; see Tracing below.
 - `sandbox/sandbox.py`: `Sandbox` builds/starts the container, executes argument lists in
   it, sends tool calls to the container's runner with `call_tool()`, and removes the
   container when the session ends.
@@ -247,3 +249,34 @@ The history file gets two lines. The first is the compaction record:
 The second is the continuation message, saved as a normal `user` record. It keeps the
 current turn number, since only real user input advances the turn. To rebuild what the model currently sees, take the
 system message plus every item after the last `compaction_summary` record.
+
+## Tracing
+
+Model calls are traced in [Arize Phoenix](https://docs.arize.com/phoenix), an open-source
+observability server that runs locally, so traces never leave your machine. Start it
+yourself in another terminal and keep it running:
+
+```sh
+docker run --name phoenix -p 127.0.0.1:6006:6006 \
+  -v /Users/pk/phoenix_data:/mnt/data \
+  -e PHOENIX_WORKING_DIR=/mnt/data \
+  -e PHOENIX_ENABLE_AUTH=false \
+  arizephoenix/phoenix
+```
+
+- `127.0.0.1:6006:6006` makes Phoenix reachable only from this machine.
+- `PHOENIX_ENABLE_AUTH=false` turns off the login screen, which recent Phoenix images
+  enable by default. With login on, the harness would also need an API key to send traces.
+- `-v` keeps the trace database in a normal folder (`/Users/pk/phoenix_data`), so it
+  survives removing the container or reinstalling Docker; `PHOENIX_WORKING_DIR` tells
+  Phoenix to store its data there.
+
+Next time, start the same container with `docker start phoenix`.
+Then run the harness and open http://localhost:6006 to see project `harness`.
+`start_tracing()` registers Phoenix as the trace destination and turns on OpenInference's
+OpenAI instrumentation, which patches the OpenAI client: every model call, streamed or
+not (including the compaction call), is recorded with its input, output, token counts,
+and timing. Traces are sent from a background thread. If Phoenix is not running, the
+conversation works normally, but quitting waits about ten seconds while export retries;
+set `TRACING_ENABLED = False` in `config.py` to turn tracing off. Tool calls are not
+traced yet.

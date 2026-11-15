@@ -8,8 +8,10 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
+    "arize-phoenix-otel>=0.17.3",
     "docstring-parser>=0.18.0",
     "openai>=3.42.1",
+    "openinference-instrumentation-openai>=0.1.73",
     "pydantic>=2.14.2",
     "python-dotenv>=1.2.4",
 ]

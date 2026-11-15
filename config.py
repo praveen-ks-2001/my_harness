@@ -28,6 +28,11 @@ DEFAULT_WORKSPACE_DIRECTORY = PROJECT_DIRECTORY / "workspace"
 CONTAINER_WORKSPACE_DIRECTORY = "/workspace"
 CONTAINER_HISTORY_DIRECTORY = "/chat_history"
 
+# Tracing in a local Phoenix server; the README's Tracing section has the docker run command.
+TRACING_ENABLED = True
+PHOENIX_PROJECT_NAME = "harness"
+PHOENIX_ENDPOINT = "http://localhost:6006/v1/traces"
+
 # Docker execution.
 SANDBOX_IMAGE = "harness-sandbox:local"
 SANDBOX_NETWORK = "bridge"

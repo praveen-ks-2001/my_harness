@@ -4,6 +4,7 @@ import config
 from agent.conversation import Conversation
 from agent.model import stream_model
 from compaction.compact import compact_conversation, needs_compaction
+from observability.tracing import start_tracing
 from sandbox.sandbox import Sandbox
 from utils.terminal import choose_workspace, print_stream
 
@@ -49,6 +50,7 @@ def run_loop(client, conversation, sandbox):
 
 
 def start_agent():
+    start_tracing()
     system_message = config.SYSTEM_MESSAGE_FILE.read_text(encoding="utf-8")
 
     with OpenAI() as client:
