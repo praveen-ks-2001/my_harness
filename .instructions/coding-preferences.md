@@ -52,7 +52,8 @@
   `config.py`. Keep secrets in the environment or the ignored `.env` file.
 - Load the project's `.env` file in `config.py` with `python-dotenv`, preserving values
   already set in the environment. Group related settings with short one-line comments.
-- Store the system instructions in `prompts/system_message.md` and read them at startup.
+- Store the system instructions in `agent/prompts/system_message.md` and read them at
+  startup. Group code by feature folder, with each feature's prompts in its own `prompts/`.
 - Initialize one conversation before the user-input loop so history survives across turns.
 - Keep API input and file records distinct: `model_input` contains original API items;
   JSONL records wrap those items with metadata. Never send the metadata wrapper to OpenAI.

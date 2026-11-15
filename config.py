@@ -17,10 +17,10 @@ CONTEXT_WINDOW_TOKENS = 100_000
 COMPACT_AT_FRACTION = 0.7
 
 # Prompt and conversation history.
-SYSTEM_MESSAGE_FILE = PROJECT_DIRECTORY / "prompts" / "system_message.md"
-COMPACTION_SYSTEM_PROMPT_FILE = PROJECT_DIRECTORY / "prompts" / "compaction_system_prompt.md"
-COMPACTION_INPUT_TEMPLATE_FILE = PROJECT_DIRECTORY / "prompts" / "compaction_input_template.md"
-COMPACTION_CONTINUATION_TEMPLATE_FILE = PROJECT_DIRECTORY / "prompts" / "compaction_continuation_template.md"
+SYSTEM_MESSAGE_FILE = PROJECT_DIRECTORY / "agent" / "prompts" / "system_message.md"
+COMPACTION_SYSTEM_PROMPT_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "system_prompt.md"
+COMPACTION_INPUT_TEMPLATE_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "input_template.md"
+COMPACTION_CONTINUATION_TEMPLATE_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "continuation_template.md"
 HISTORY_DIRECTORY = PROJECT_DIRECTORY / "chat_history"
 
 # Workspace locations.

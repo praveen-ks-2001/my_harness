@@ -51,7 +51,7 @@ credentials, chat history, and the rest of the harness are not copied into it.
 ### Adding a tool
 
 The steps and an example are at the top of [tools/\_\_init\_\_.py](tools/__init__.py).
-At startup, `model.py` calls `tool_schemas()` in `tools/registry.py`: Pydantic turns the
+At startup, `agent/model.py` calls `tool_schemas()` in `tools/registry.py`: Pydantic turns the
 type hints and defaults into JSON Schema, and `docstring-parser` adds the description and
 each `Args:` entry. A tool without a description, or with an undocumented argument,
 stops startup with an error. Before a tool runs, Pydantic checks the model's arguments
@@ -94,31 +94,43 @@ workspace persist across sessions. A tool-call approval model is not implemented
 
 ## Code flow
 
+Code is grouped by feature; each folder keeps its own prompts.
+
+```
+main.py, config.py        entry point and settings
+agent/                    the main model: model.py, conversation.py, prompts/
+compaction/               compact.py, prompts/
+sandbox/                  sandbox.py (Docker side of the host)
+tools/                    tool package that runs inside Docker
+utils/terminal.py         terminal input and output
+```
+
 - `main.py`: `start_agent()` reads user input; `run_loop()` calls the model until it
   stops requesting tools, or until `MAX_MODEL_CALLS_PER_TURN` calls have been made in
   that turn. It then prints an `[INFO]` notice and waits for the next user input.
-- `utils/terminal.py`: `choose_workspace()` asks for the working folder; `print_stream()`
-  prints a streamed response.
-- `conversation.py`: `Conversation` owns the message list, turn number, and history
+- `config.py`: history directory, prompt paths, OpenAI model name, model-call
+  limit per turn, compaction threshold, workspace paths, sandbox image/network
+  settings, and tool timeout, grouped by purpose. Project paths are relative to the
+  project directory. The model name is read from `OPENAI_MODEL` in the environment;
+  it can also be set directly in this file.
+- `agent/model.py`: `stream_model()` starts a streamed API request.
+- `agent/conversation.py`: `Conversation` owns the message list, turn number, and history
   file path. Its methods build message dictionaries and record them in context and JSONL.
-- `sandbox.py`: `Sandbox` builds/starts the container, executes argument lists in it,
-  sends tool calls to the container's runner with `call_tool()`, and removes the
+- `agent/prompts/system_message.md`: system instructions, read once by `start_agent()`.
+- `compaction/compact.py`: `needs_compaction()` and `compact_conversation()`, which also
+  makes the tool-free summary call; `compaction/prompts/` holds its system prompt and
+  two templates. See Compaction below.
+- `sandbox/sandbox.py`: `Sandbox` builds/starts the container, executes argument lists in
+  it, sends tool calls to the container's runner with `call_tool()`, and removes the
   container when the session ends.
 - `Dockerfile` and `.dockerignore`: define the tool environment and limit the build
-  context to the tool implementation and Dockerfile.
-- `config.py`: history directory, prompt paths, OpenAI model name, model-call
-  limit per turn, compaction threshold, workspace
-  paths, sandbox image/network settings, and tool timeout, grouped by purpose. Project paths
-  are relative to the project directory. The model name is read from `OPENAI_MODEL` in
-  the environment; it can also be set directly in this file.
-- `model.py`: `stream_model()` starts a streamed API request.
-- `compaction.py`: `needs_compaction()` and `compact_conversation()`, which also makes the
-  tool-free summary call; see Compaction below.
+  context to the tool implementation and Dockerfile. They stay at the project root
+  because the image needs `tools/`.
 - `tools/`: `registry.py` (the `@tool` decorator, `TOOLS`, schema building, and argument
   validation), the tool modules `files.py`, `shell.py`, and `clock.py`, and `runner.py`,
   the entry point Docker runs for each tool call.
-- `prompts/system_message.md`: system instructions, read once by `start_agent()`.
-  The `compaction_*.md` files are the compaction system prompt and templates.
+- `utils/terminal.py`: `choose_workspace()` asks for the working folder; `print_stream()`
+  prints a streamed response.
 
 The message list is created once, before the input loop, so follow-up questions retain
 earlier context. Responses are streamed: `print_stream()` in `utils/terminal.py` prints reasoning
@@ -210,12 +222,12 @@ default, in `config.py`), or when you type `/compact`, the conversation is compa
 
 1. The conversation is split into units. A unit is one user message and everything the
    model did in reply (reasoning, tool calls, tool results, answers) until the next one.
-2. The summarizer gets `prompts/compaction_system_prompt.md` as its system message and,
-   as its user message, `prompts/compaction_input_template.md` filled with the original system message
+2. The summarizer gets `compaction/prompts/system_prompt.md` as its system message and,
+   as its user message, `compaction/prompts/input_template.md` filled with the original system message
    and every unit as XML (`<user>`, `<assistant>`, `<function_call>`, `<tool_result>`).
    Encrypted reasoning is left out.
 3. `model_input` becomes the original system message plus one user message,
-   `prompts/compaction_continuation_template.md` filled with the summary and the last two units
+   `compaction/prompts/continuation_template.md` filled with the summary and the last two units
    verbatim. The loop then carries on, even in the middle of a turn.
 
 A later compaction summarizes that continuation message along with everything after it.

@@ -1,10 +1,10 @@
 from openai import OpenAI, OpenAIError
 
 import config
-from compaction import compact_conversation, needs_compaction
-from conversation import Conversation
-from model import stream_model
-from sandbox import Sandbox
+from agent.conversation import Conversation
+from agent.model import stream_model
+from compaction.compact import compact_conversation, needs_compaction
+from sandbox.sandbox import Sandbox
 from utils.terminal import choose_workspace, print_stream
 
 

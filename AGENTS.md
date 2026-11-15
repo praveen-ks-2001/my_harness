@@ -8,6 +8,8 @@ host; tools run inside Docker against a chosen workspace.
 Before planning or changing code, read the user's
 [coding preferences](.instructions/coding-preferences.md). Current user instructions
 take precedence. Keep changes small and discuss additional architecture before adding it.
+Code is grouped by feature folder (`agent/`, `compaction/`, `sandbox/`, `tools/`), and
+each feature keeps its prompts in its own `prompts/` subfolder.
 
 ## Where to look
 
@@ -15,13 +17,14 @@ take precedence. Keep changes small and discuss additional architecture before a
 | --- | --- |
 | [main.py](main.py) | Startup, the user-input loop, and the model/tool loop. |
 | [utils/terminal.py](utils/terminal.py) | Workspace prompt and streamed-output printing. |
-| [model.py](model.py) | Streamed OpenAI Responses API call. |
-| [compaction.py](compaction.py) | When to compact, the summary call, splitting `model_input` into units, and rendering items as XML. |
-| [conversation.py](conversation.py) | API input items, turn numbering, and JSONL history. |
+| [agent/model.py](agent/model.py) | Streamed OpenAI Responses API call. |
+| [agent/conversation.py](agent/conversation.py) | API input items, turn numbering, and JSONL history. |
+| [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions. |
+| [compaction/compact.py](compaction/compact.py) | When to compact, the summary call, splitting `model_input` into units, and rendering items as XML. |
+| [compaction/prompts/](compaction/prompts/) | The summarizer's system prompt, its input template, and the continuation template. |
 | [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
-| [sandbox.py](sandbox.py) | Docker lifecycle, command execution, and `Sandbox.call_tool()`. |
+| [sandbox/sandbox.py](sandbox/sandbox.py) | Docker lifecycle, command execution, and `Sandbox.call_tool()`. |
 | [config.py](config.py) | Grouped settings and automatic `.env` loading. |
-| [prompts/](prompts/) | The agent's system instructions and the compaction system prompt and two templates. |
 | [Dockerfile](Dockerfile), [.dockerignore](.dockerignore) | Tool environment and restricted build context. |
 | [README.md](README.md) | Usage, tool behavior, sandbox details, and history format. |
 
