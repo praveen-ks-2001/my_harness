@@ -33,8 +33,11 @@ if Docker is unavailable. The container is removed on normal exit or when an exc
 unwinds the session; workspace files remain on disk.
 
 The container runs as the host user's UID/GID, with outbound networking, a read-only root
-filesystem, and temporary writable `/tmp` storage. Only the selected host folder is
-shared. The image contains Python, Bash, Git, ripgrep, timezone data, Pydantic, `docstring-parser`,
+filesystem, and temporary writable `/tmp` storage. Besides the workspace, only the
+`chat_history/` folder is shared, read-only at `/chat_history`: the model can search
+this session and past ones, but cannot change them. The system message tells it the
+current session's file path and to search with `rg` and `jq` instead of reading whole
+files. The image contains Python, Bash, Git, ripgrep, jq, timezone data, Pydantic, `docstring-parser`,
 and the `tools/` package; API
 credentials, chat history, and the rest of the harness are not copied into it.
 
@@ -116,7 +119,8 @@ utils/terminal.py         terminal input and output
 - `agent/model.py`: `stream_model()` starts a streamed API request.
 - `agent/conversation.py`: `Conversation` owns the message list, turn number, and history
   file path. Its methods build message dictionaries and record them in context and JSONL.
-- `agent/prompts/system_message.md`: system instructions, read once by `start_agent()`.
+- `agent/prompts/system_message.md`: system instructions, read once by `start_agent()`,
+  which fills in `{history_file}` and `{history_directory}` with the container paths.
 - `compaction/compact.py`: `needs_compaction()` and `compact_conversation()`, which also
   makes the tool-free summary call; `compaction/prompts/` holds its system prompt and
   two templates. See Compaction below.
@@ -166,7 +170,7 @@ record containing metadata and the item, then appends only the original item to
 The turn counter and file writing also live in this method. The leading underscore
 marks it as an internal helper.
 
-Every run creates `chat_history/YYYY-MM-DD_HH-MM-SS_microseconds.jsonl`.
+Every run creates `chat_history/main_agent_YYYYMMDD_HHMMSS_microseconds.jsonl`.
 The first line is a turn-zero session record, before any conversation items:
 
 ```json

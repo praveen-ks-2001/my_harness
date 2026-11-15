@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash git ripgrep \
+    && apt-get install -y --no-install-recommends bash git jq ripgrep \
     && rm -rf /var/lib/apt/lists/*
 
 # Tool runtime dependencies, pinned to the versions in uv.lock.

@@ -56,6 +56,11 @@ def start_agent():
         print("\n[SANDBOX]\nPreparing the Docker image and workspace container...")
         with Sandbox(workspace_directory) as sandbox:
             conversation = Conversation(workspace_directory, sandbox.container_id)
+            container_history_file = f"{config.CONTAINER_HISTORY_DIRECTORY}/{conversation.history_path.name}"
+            system_message = system_message.format(
+                history_file=container_history_file,
+                history_directory=config.CONTAINER_HISTORY_DIRECTORY,
+            )
             conversation.append_text_message(system_message, message_type="system")
             print(f"\n[HISTORY]\n{conversation.history_path}\n\n[INFO]\nType quit to exit, or /compact to summarize the conversation so far.")
 

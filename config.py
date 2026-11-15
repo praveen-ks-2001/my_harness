@@ -26,6 +26,7 @@ HISTORY_DIRECTORY = PROJECT_DIRECTORY / "chat_history"
 # Workspace locations.
 DEFAULT_WORKSPACE_DIRECTORY = PROJECT_DIRECTORY / "workspace"
 CONTAINER_WORKSPACE_DIRECTORY = "/workspace"
+CONTAINER_HISTORY_DIRECTORY = "/chat_history"
 
 # Docker execution.
 SANDBOX_IMAGE = "harness-sandbox:local"

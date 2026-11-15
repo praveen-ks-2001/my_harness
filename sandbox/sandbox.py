@@ -23,7 +23,7 @@ def _run_docker(*arguments, input_text=None):
 
 
 class Sandbox:
-    """Run this session's tools in Docker with one writable host workspace."""
+    """Run this session's tools in Docker with one writable workspace and read-only history."""
 
     def __init__(self, workspace_directory):
         self.workspace_directory = Path(workspace_directory).expanduser().resolve()
@@ -38,6 +38,7 @@ class Sandbox:
         self.image_id = None
 
     def start(self):
+        config.HISTORY_DIRECTORY.mkdir(parents=True, exist_ok=True)
         self.image_id = _run_docker(
             "build", "--quiet", "--tag", config.SANDBOX_IMAGE, str(config.PROJECT_DIRECTORY),
         )
@@ -47,6 +48,11 @@ class Sandbox:
             "--mount", (
                 f"type=bind,source={self.workspace_directory},"
                 f"target={config.CONTAINER_WORKSPACE_DIRECTORY}"
+            ),
+            # Read-only, so the model can search every session's history but not change it.
+            "--mount", (
+                f"type=bind,source={config.HISTORY_DIRECTORY.resolve()},"
+                f"target={config.CONTAINER_HISTORY_DIRECTORY},readonly"
             ),
             "--user", f"{os.getuid()}:{os.getgid()}",
             "--read-only", "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m",

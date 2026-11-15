@@ -19,8 +19,8 @@ class Conversation:
             history_directory = config.HISTORY_DIRECTORY
         history_directory = Path(history_directory)
         history_directory.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
-        self.history_path = history_directory / f"{timestamp}.jsonl"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        self.history_path = history_directory / f"main_agent_{timestamp}.jsonl"
         session_record = {
             "metadata": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),

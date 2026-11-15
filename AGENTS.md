@@ -19,7 +19,7 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 | [utils/terminal.py](utils/terminal.py) | Workspace prompt and streamed-output printing. |
 | [agent/model.py](agent/model.py) | Streamed OpenAI Responses API call. |
 | [agent/conversation.py](agent/conversation.py) | API input items, turn numbering, and JSONL history. |
-| [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions. |
+| [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions; `{history_file}` and `{history_directory}` are filled in by `start_agent()`. |
 | [compaction/compact.py](compaction/compact.py) | When to compact, the summary call, splitting `model_input` into units, and rendering items as XML. |
 | [compaction/prompts/](compaction/prompts/) | The summarizer's system prompt, its input template, and the continuation template. |
 | [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
@@ -35,8 +35,12 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 - Each history file starts with turn-zero session metadata identifying the workspace
   and container. Model output items carry `response_id` in metadata; the last item of
   each model call also carries its token `usage`. A turn advances once per user input, not once per model/tool call.
-- Only the selected workspace is shared with Docker, at `/workspace`. The default is
-  a reusable local `workspace/`; harness code, credentials, and history stay outside.
+- Docker gets two mounts: the selected workspace read/write at `/workspace`, and
+  `chat_history/` read-only at `/chat_history` so the model can search its own and past
+  sessions. The default workspace is a reusable local `workspace/`; harness code and
+  credentials stay outside, and a workspace containing the harness or history is refused.
+- History files are named `main_agent_YYYYMMDD_HHMMSS_ffffff.jsonl`. The file tools only
+  reach `/workspace`, so the model reads history with `run_command` (`rg`, `jq`, `sed`).
 - Tool schemas come from type hints and Google-style docstrings; every argument needs
   an `Args:` entry or startup fails. The host only builds schemas; tool functions run
   in Docker, so tool dependencies must also be installed in the Dockerfile.

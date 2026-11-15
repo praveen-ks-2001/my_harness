@@ -64,8 +64,8 @@
 - Ask for one working folder at startup, defaulting to a reusable `workspace/` folder.
   Keep the Python harness on the host and execute all tools inside Docker, including
   Python scripts. Never silently fall back to local tool execution.
-- Share only the selected workspace with the container. Keep the harness, credentials,
-  and chat history outside it. Record workspace/container details in a turn-zero
+- Share only the selected workspace (read/write) and `chat_history/` (read-only) with the
+  container. Keep the harness and credentials outside it. Record workspace/container details in a turn-zero
   session record before conversation items; this record is not model input.
 - Allow Docker tools outbound network access for downloads and package installation.
   The separate tool-call decision/approval model is a later feature, not implemented yet.
