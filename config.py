@@ -12,8 +12,15 @@ load_dotenv(PROJECT_DIRECTORY / ".env")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "")
 MAX_MODEL_CALLS_PER_TURN = 20
 
+# Compaction: summarize the conversation once its input passes this share of the window.
+CONTEXT_WINDOW_TOKENS = 100_000
+COMPACT_AT_FRACTION = 0.7
+
 # Prompt and conversation history.
 SYSTEM_MESSAGE_FILE = PROJECT_DIRECTORY / "prompts" / "system_message.md"
+COMPACTION_SYSTEM_PROMPT_FILE = PROJECT_DIRECTORY / "prompts" / "compaction_system_prompt.md"
+COMPACTION_INPUT_TEMPLATE_FILE = PROJECT_DIRECTORY / "prompts" / "compaction_input_template.md"
+COMPACTION_CONTINUATION_TEMPLATE_FILE = PROJECT_DIRECTORY / "prompts" / "compaction_continuation_template.md"
 HISTORY_DIRECTORY = PROJECT_DIRECTORY / "chat_history"
 
 # Workspace locations.

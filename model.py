@@ -17,3 +17,4 @@ def stream_model(client, model_input):
         reasoning={"summary": "auto"},
         store=False,
     )
+

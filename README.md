@@ -19,7 +19,7 @@ Variables already set in the environment take priority over values in `.env`.
 
 At startup, enter an existing folder the tools may read and modify. Press Enter to
 create or reuse the default `workspace/` folder in this project. Type `quit` or `exit`
-to finish the conversation.
+to finish the conversation, or `/compact` to summarize the conversation so far.
 
 The harness builds a small Docker image and starts one container for the session.
 Subsequent starts reuse Docker's build cache. The selected host folder is mounted
@@ -106,16 +106,19 @@ workspace persist across sessions. A tool-call approval model is not implemented
   container when the session ends.
 - `Dockerfile` and `.dockerignore`: define the tool environment and limit the build
   context to the tool implementation and Dockerfile.
-- `config.py`: history directory, system prompt path, OpenAI model name, model-call
-  limit per turn, workspace
+- `config.py`: history directory, prompt paths, OpenAI model name, model-call
+  limit per turn, compaction threshold, workspace
   paths, sandbox image/network settings, and tool timeout, grouped by purpose. Project paths
   are relative to the project directory. The model name is read from `OPENAI_MODEL` in
   the environment; it can also be set directly in this file.
 - `model.py`: `stream_model()` starts a streamed API request.
+- `compaction.py`: `needs_compaction()` and `compact_conversation()`, which also makes the
+  tool-free summary call; see Compaction below.
 - `tools/`: `registry.py` (the `@tool` decorator, `TOOLS`, schema building, and argument
   validation), the tool modules `files.py`, `shell.py`, and `clock.py`, and `runner.py`,
   the entry point Docker runs for each tool call.
 - `prompts/system_message.md`: system instructions, read once by `start_agent()`.
+  The `compaction_*.md` files are the compaction system prompt and templates.
 
 The message list is created once, before the input loop, so follow-up questions retain
 earlier context. Responses are streamed: `print_stream()` in `utils/terminal.py` prints reasoning
@@ -124,7 +127,7 @@ summaries and assistant text as they arrive. Once the response completes,
 calls are executed one by one. Their results are included in the next model request.
 If a response ends without completing, `get_final_response()` raises and the session stops.
 Terminal labels use uppercase square brackets: `[USER]`, `[REASONING]`, `[ASSISTANT]`,
-`[REFUSAL]`, `[TOOL]`, and `[TOOL RESULT]`. Other returned item types are saved and
+`[REFUSAL]`, `[TOOL]`, `[TOOL RESULT]`, and `[COMPACTION]`. Other returned item types are saved and
 displayed with their type as the label.
 Each label is followed by its content on a new line.
 
@@ -197,3 +200,34 @@ Summing `usage` across the file gives the session's token use.
 `conversation.model_input` contains only the original API items, without the file metadata.
 Items are saved immediately, and `call_id` links each tool result to its call.
 The history folder is gitignored. Existing logs keep their original format and metadata.
+
+## Compaction
+
+Before every model call, `run_loop()` estimates the next input: the last call's exact
+`input_tokens + output_tokens`, plus about one token per four characters of items added
+since. When that passes `CONTEXT_WINDOW_TOKENS * COMPACT_AT_FRACTION` (70% of 100K by
+default, in `config.py`), or when you type `/compact`, the conversation is compacted:
+
+1. The conversation is split into units. A unit is one user message and everything the
+   model did in reply (reasoning, tool calls, tool results, answers) until the next one.
+2. The summarizer gets `prompts/compaction_system_prompt.md` as its system message and,
+   as its user message, `prompts/compaction_input_template.md` filled with the original system message
+   and every unit as XML (`<user>`, `<assistant>`, `<function_call>`, `<tool_result>`).
+   Encrypted reasoning is left out.
+3. `model_input` becomes the original system message plus one user message,
+   `prompts/compaction_continuation_template.md` filled with the summary and the last two units
+   verbatim. The loop then carries on, even in the middle of a turn.
+
+A later compaction summarizes that continuation message along with everything after it.
+With two or fewer units there is nothing to shrink, so compaction refuses. If compaction
+fails, the turn stops with an `[ERROR]`; type `continue` to retry, or `/compact`.
+
+The history file gets two lines. The first is the compaction record:
+
+```json
+{"metadata":{"timestamp":"…","turn_number":3,"message_type":"compaction_summary","trigger":"auto","response_id":"resp_…","usage":{…}},"compaction":{"summary":"…"}}
+```
+
+The second is the continuation message, saved as a normal `user` record. It keeps the
+current turn number, since only real user input advances the turn. To rebuild what the model currently sees, take the
+system message plus every item after the last `compaction_summary` record.

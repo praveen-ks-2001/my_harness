@@ -11,6 +11,9 @@ class Conversation:
     def __init__(self, workspace_directory, container_id, history_directory=None):
         self.model_input = []
         self.turn_number = 0
+        # The last call's exact input size, plus the characters of items added since.
+        self.tokens_at_last_call = 0
+        self.characters_since_last_call = 0
 
         if history_directory is None:
             history_directory = config.HISTORY_DIRECTORY
@@ -40,6 +43,8 @@ class Conversation:
         """Build and record a system, developer, user, or assistant text message."""
         if message_type not in {"system", "developer", "user", "assistant"}:
             raise ValueError(f"Unsupported text message type: {message_type}")
+        if message_type == "user":
+            self.turn_number += 1
         api_item = {"role": message_type, "content": text}
         self._record_item(api_item, message_type)
 
@@ -57,28 +62,57 @@ class Conversation:
                 response_metadata["usage"] = response.usage.model_dump() if response.usage else None
             self._record_item(api_item, message_type, response_metadata)
 
+        if response.usage:
+            self.tokens_at_last_call = response.usage.input_tokens + response.usage.output_tokens
+            self.characters_since_last_call = 0
+
     def append_tool_result(self, call_id, output):
         """Build the result item linked to the model's function call."""
         api_item = {"type": "function_call_output", "call_id": call_id, "output": output}
         self._record_item(api_item, "tool_result")
 
+    def estimated_input_tokens(self):
+        """Estimate the next call's input: exact tokens so far plus about 4 characters per token."""
+        return self.tokens_at_last_call + self.characters_since_last_call // 4
+
+    def replace_with_compaction(self, compaction_response, continuation_text, trigger):
+        """Record the summary, then restart model input from the system message and the continuation message."""
+        compaction_record = {
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "turn_number": self.turn_number,
+                "message_type": "compaction_summary",
+                "trigger": trigger,
+                "response_id": compaction_response.id,
+                "usage": compaction_response.usage.model_dump() if compaction_response.usage else None,
+            },
+            "compaction": {"summary": compaction_response.output_text},
+        }
+        self._write_history_record(compaction_record)
+
+        system_item = self.model_input[0]
+        self.model_input = [system_item]
+        self.tokens_at_last_call = 0
+        self.characters_since_last_call = len(json.dumps(system_item, ensure_ascii=False))
+        # Recorded directly, not through append_text_message, so the turn does not advance.
+        self._record_item({"role": "user", "content": continuation_text}, "user")
+
     def _record_item(self, api_item, message_type, response_metadata=None):
         """Write an enriched history record and keep the original item for the API."""
-        turn_number = self.turn_number
-        if message_type == "user":
-            turn_number += 1
-
         history_record = {
             "metadata": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "turn_number": turn_number,
+                "turn_number": self.turn_number,
                 "message_type": message_type,
                 **(response_metadata or {}),
             },
             "message": api_item,
         }
-        with self.history_path.open("a", encoding="utf-8") as history_file:
-            history_file.write(json.dumps(history_record, ensure_ascii=False) + "\n")
+        self._write_history_record(history_record)
 
         self.model_input.append(api_item)
-        self.turn_number = turn_number
+        self.characters_since_last_call += len(json.dumps(api_item, ensure_ascii=False))
+
+    def _write_history_record(self, history_record):
+        with self.history_path.open("a", encoding="utf-8") as history_file:
+            history_file.write(json.dumps(history_record, ensure_ascii=False) + "\n")
