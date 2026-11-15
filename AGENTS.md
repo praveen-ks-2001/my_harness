@@ -23,7 +23,7 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 | [compaction/compact.py](compaction/compact.py) | When to compact, the summary call, splitting `model_input` into units, and rendering items as XML. |
 | [compaction/prompts/](compaction/prompts/) | The summarizer's system prompt, its input template, and the continuation template. |
 | [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
-| [observability/tracing.py](observability/tracing.py) | `start_tracing()`: sends every OpenAI call to a local Phoenix server via OpenInference auto-instrumentation. |
+| [observability/tracing.py](observability/tracing.py) | `start_tracing()` (OpenAI calls auto-traced to local Phoenix) and the `trace_session`/`trace_turn`/`trace_tool`/`trace_compaction` blocks used in `main.py`. |
 | [sandbox/sandbox.py](sandbox/sandbox.py) | Docker lifecycle, command execution, and `Sandbox.call_tool()`. |
 | [config.py](config.py) | Grouped settings and automatic `.env` loading. |
 | [Dockerfile](Dockerfile), [.dockerignore](.dockerignore) | Tool environment and restricted build context. |
@@ -61,7 +61,8 @@ each feature keeps its prompts in its own `prompts/` subfolder.
   the container root is read-only. There is no host-execution fallback.
 
 Current tools: `read_file`, `write_file`, `edit_file`, `run_command`, and `current_time`.
-Only model calls are traced so far; tool-call and per-turn spans are not added yet.
+Tracing: one Phoenix session per run (`session.id` = history file stem), one trace per
+user turn; failed tool calls are not marked as errors yet.
 Tool-call approval, session resume, and subagents remain future work;
 their mention is not authorization to implement them. Verification preferences,
 commit-message conventions, and the rule to keep this file and the README current

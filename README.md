@@ -276,7 +276,23 @@ Then run the harness and open http://localhost:6006 to see project `harness`.
 `start_tracing()` registers Phoenix as the trace destination and turns on OpenInference's
 OpenAI instrumentation, which patches the OpenAI client: every model call, streamed or
 not (including the compaction call), is recorded with its input, output, token counts,
-and timing. Traces are sent from a background thread. If Phoenix is not running, the
+and timing. Traces are sent from a background thread.
+
+`main.py` groups the spans with the `with` blocks from `observability/tracing.py`:
+
+```
+session  main_agent_<timestamp>      trace_session: the whole run, named after its history file
+└─ turn 1                            trace_turn: one trace per user turn (input and final answer)
+   ├─ Response                       model call, traced automatically
+   ├─ current_time                   trace_tool: tool name, arguments, result
+   ├─ compaction                     trace_compaction: trigger and token estimates
+   │  └─ Response                    the summary call
+   └─ Response
+```
+
+A span opened inside another becomes its child, so the automatic model-call spans nest
+under the turn without extra code. A manual `/compact` happens outside a turn, so it is
+its own trace. In Phoenix, the Traces tab lists turns and the Sessions tab lists runs. If Phoenix is not running, the
 conversation works normally, but quitting waits about ten seconds while export retries;
-set `TRACING_ENABLED = False` in `config.py` to turn tracing off. Tool calls are not
-traced yet.
+set `TRACING_ENABLED = False` in `config.py` to turn tracing off; the `with` blocks then
+do nothing. Failed tool calls are not marked as errors yet.
