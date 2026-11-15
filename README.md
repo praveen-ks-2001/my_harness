@@ -295,4 +295,7 @@ under the turn without extra code. A manual `/compact` happens outside a turn, s
 its own trace. In Phoenix, the Traces tab lists turns and the Sessions tab lists runs. If Phoenix is not running, the
 conversation works normally, but quitting waits about ten seconds while export retries;
 set `TRACING_ENABLED = False` in `config.py` to turn tracing off; the `with` blocks then
-do nothing. Failed tool calls are not marked as errors yet.
+do nothing. Tool and compaction spans show OK (✓) or error (red, with the reason).
+A tool counts as failed when its result is `{"error": ...}`, such as a refused path or
+a Docker failure; a `run_command` with a nonzero exit code is a normal result, since the
+tool itself worked. Turn spans have no status unless an exception occurs.

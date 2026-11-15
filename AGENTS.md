@@ -62,7 +62,8 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 
 Current tools: `read_file`, `write_file`, `edit_file`, `run_command`, and `current_time`.
 Tracing: one Phoenix session per run (`session.id` = history file stem), one trace per
-user turn; failed tool calls are not marked as errors yet.
+user turn. Tool and compaction spans are marked OK or error; a tool result of
+`{"error": ...}` counts as failed, while a nonzero `run_command` exit does not.
 Tool-call approval, session resume, and subagents remain future work;
 their mention is not authorization to implement them. Verification preferences,
 commit-message conventions, and the rule to keep this file and the README current

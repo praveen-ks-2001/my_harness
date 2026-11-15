@@ -1,8 +1,10 @@
+import json
 from contextlib import contextmanager
 
 from openinference.instrumentation import OITracer, TraceConfig, using_session
 from openinference.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from phoenix.otel import register
 
 import config
@@ -59,3 +61,26 @@ def trace_compaction(trigger, tokens_before):
         span.set_input(value=f"{trigger} compaction of about {tokens_before:,} tokens")
         span.set_attribute(key="trigger", value=trigger)
         yield span
+
+
+def record_tool_result(span, result):
+    """Save a tool's result on its span; a result like {"error": "..."} marks the span failed."""
+    span.set_output(value=result)
+    try:
+        error = json.loads(result).get("error")
+    except (json.JSONDecodeError, AttributeError):
+        # Plain text, or JSON that is not an object, is a successful result.
+        error = None
+    if error:
+        mark_failed(span, message=error)
+    else:
+        mark_ok(span)
+
+
+def mark_ok(span):
+    span.set_status(Status(status_code=StatusCode.OK))
+
+
+def mark_failed(span, message):
+    """Show the span as an error (red) in Phoenix, with the message as the reason."""
+    span.set_status(Status(status_code=StatusCode.ERROR, description=message))

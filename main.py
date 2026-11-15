@@ -4,7 +4,16 @@ import config
 from agent.conversation import Conversation
 from agent.model import stream_model
 from compaction.compact import compact_conversation, needs_compaction
-from observability.tracing import start_tracing, trace_compaction, trace_session, trace_tool, trace_turn
+from observability.tracing import (
+    mark_failed,
+    mark_ok,
+    record_tool_result,
+    start_tracing,
+    trace_compaction,
+    trace_session,
+    trace_tool,
+    trace_turn,
+)
 from sandbox.sandbox import Sandbox
 from utils.terminal import choose_workspace, print_stream
 
@@ -19,9 +28,11 @@ def compact(client, conversation, trigger):
         except (OpenAIError, RuntimeError) as error:
             print(f"\n[ERROR]\nCompaction failed: {error}\nType continue to retry, or /compact.")
             compaction_span.set_output(value=f"Failed: {error}")
+            mark_failed(compaction_span, message=str(error))
             return False
         result = f"Done: about {conversation.estimated_input_tokens():,} tokens now."
         compaction_span.set_output(value=result)
+        mark_ok(compaction_span)
     print(result)
     return True
 
@@ -50,7 +61,7 @@ def run_loop(client, conversation, sandbox):
             print(f"\n[TOOL]\n{item.name}({item.arguments})")
             with trace_tool(item.name, item.arguments) as tool_span:
                 result = sandbox.call_tool(item.name, item.arguments)
-                tool_span.set_output(value=result)
+                record_tool_result(tool_span, result=result)
             print(f"\n[TOOL RESULT]\n{result}")
             conversation.append_tool_result(item.call_id, result)
 
