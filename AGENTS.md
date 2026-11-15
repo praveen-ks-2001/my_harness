@@ -8,7 +8,7 @@ host; tools run inside Docker against a chosen workspace.
 Before planning or changing code, read the user's
 [coding preferences](.instructions/coding-preferences.md). Current user instructions
 take precedence. Keep changes small and discuss additional architecture before adding it.
-Code is grouped by feature folder (`agent/`, `compaction/`, `observability/`, `sandbox/`, `tools/`), and
+Code is grouped by feature folder (`agent/`, `compaction/`, `observability/`, `sandbox/`, `tool_classifier/`, `tools/`), and
 each feature keeps its prompts in its own `prompts/` subfolder.
 
 ## Where to look
@@ -23,6 +23,7 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 | [compaction/compact.py](compaction/compact.py) | When to compact, the summary call, splitting `model_input` into units, and rendering items as XML. |
 | [compaction/prompts/](compaction/prompts/) | The summarizer's system prompt, its input template, and the continuation template. |
 | [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
+| [tool_classifier/](tool_classifier/) | Decides before each tool call whether it runs: `ToolClassifier.decide()` returns a `Decision(allowed, decided_by, reason)`. Modes `auto` (LLM, `_classify_with_llm`), `allow_all`, `manual`; helpers in `utils.py`, prompts in `prompts/`. |
 | [observability/tracing.py](observability/tracing.py) | `start_tracing()` (OpenAI calls auto-traced to local Phoenix) and the `trace_session`/`trace_turn`/`trace_tool`/`trace_compaction` blocks used in `main.py`. |
 | [sandbox/sandbox.py](sandbox/sandbox.py) | Docker lifecycle, command execution, and `Sandbox.call_tool()`. |
 | [config.py](config.py) | Grouped settings and automatic `.env` loading. |
@@ -47,6 +48,12 @@ each feature keeps its prompts in its own `prompts/` subfolder.
   in Docker, so tool dependencies must also be installed in the Dockerfile.
 - Tool arguments reach the container's runner as JSON on stdin, not as a command-line
   argument, because Linux caps each argument at 128 KB.
+- Before each tool call, `ToolClassifier.decide()` runs (mode from `TOOL_CLASSIFIER_MODE`,
+  switchable with `/tool-classifier <mode>`). A rejected call does not run; its
+  `function_call_output` is a "Not run: rejected by … Reason: …" message, and the
+  decision is saved as `decision` in that tool result's history metadata. The LLM
+  classifier sees the last two user messages, the response's reasoning summary, and the
+  call, and denies if it fails. `reason` is optional so yes/no-only deciders fit.
 - One user turn makes at most `MAX_MODEL_CALLS_PER_TURN` model calls, then control
   returns to the user.
 - Before every model call, the input size is estimated as the last call's exact
@@ -64,7 +71,7 @@ Current tools: `read_file`, `write_file`, `edit_file`, `run_command`, and `curre
 Tracing: one Phoenix session per run (`session.id` = history file stem), one trace per
 user turn. Tool and compaction spans are marked OK or error; a tool result of
 `{"error": ...}` counts as failed, while a nonzero `run_command` exit does not.
-Tool-call approval, session resume, and subagents remain future work;
+Session resume and subagents remain future work;
 their mention is not authorization to implement them. Verification preferences,
 commit-message conventions, and the rule to keep this file and the README current
 after every code change are in the coding preferences linked above.

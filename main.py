@@ -7,16 +7,22 @@ from compaction.compact import compact_conversation, needs_compaction
 from observability.tracing import (
     mark_failed,
     mark_ok,
+    record_decision,
     record_tool_result,
     start_tracing,
     trace_compaction,
     trace_session,
     trace_tool,
+    trace_tool_decision,
     trace_turn,
 )
 from sandbox.sandbox import Sandbox
+from tool_classifier.classifier import ToolClassifier
+from tool_classifier.utils import rejection_message
 from utils.terminal import (
+    change_classifier_mode,
     choose_workspace,
+    print_classifier_mode,
     print_notice,
     print_stream,
     print_tool_call,
@@ -44,7 +50,7 @@ def compact(client, conversation, trigger):
     return True
 
 
-def run_loop(client, conversation, sandbox):
+def run_loop(client, conversation, sandbox, tool_classifier):
     """Call the model and run its tools until it answers; return the final answer text."""
     for _ in range(config.MAX_MODEL_CALLS_PER_TURN):
         if needs_compaction(conversation):
@@ -66,11 +72,20 @@ def run_loop(client, conversation, sandbox):
 
         for item in function_calls:
             print_tool_call(item.name, item.arguments)
-            with trace_tool(item.name, item.arguments) as tool_span:
-                result = sandbox.call_tool(item.name, item.arguments)
-                record_tool_result(tool_span, result=result)
-            print_tool_result(result)
-            conversation.append_tool_result(item.call_id, result)
+            with trace_tool_decision(item.name, item.arguments, tool_classifier.mode) as decision_span:
+                decision = tool_classifier.decide(item, response, conversation)
+                record_decision(decision_span, decision)
+
+            if decision.allowed:
+                with trace_tool(item.name, item.arguments) as tool_span:
+                    result = sandbox.call_tool(item.name, item.arguments)
+                    record_tool_result(tool_span, result=result)
+                print_tool_result(result)
+            else:
+                # The model gets the rejection, and its reason, as this call's result.
+                result = rejection_message(decision)
+                print_notice("REJECTED", result)
+            conversation.append_tool_result(item.call_id, result, decision=decision)
 
     print_notice("INFO", f"Stopped after {config.MAX_MODEL_CALLS_PER_TURN} model calls in this turn.")
     return None
@@ -83,6 +98,7 @@ def start_agent():
     with OpenAI() as client:
         workspace_directory = choose_workspace()
         print_notice("SANDBOX", "Preparing the Docker image and workspace container...")
+        tool_classifier = ToolClassifier(client, mode=config.TOOL_CLASSIFIER_MODE)
         with Sandbox(workspace_directory) as sandbox:
             conversation = Conversation(workspace_directory, sandbox.container_id)
             container_history_file = f"{config.CONTAINER_HISTORY_DIRECTORY}/{conversation.history_path.name}"
@@ -92,6 +108,7 @@ def start_agent():
             )
             conversation.append_text_message(system_message, message_type="system")
             print_notice("HISTORY", str(conversation.history_path))
+            print_classifier_mode(tool_classifier)
             print_notice("INFO", "Type quit to exit, or /compact to summarize the conversation so far. Tab completes commands; Up/Down recall earlier messages.")
 
             # One Phoenix session per run, named after its history file.
@@ -110,10 +127,13 @@ def start_agent():
                     if user_message == "/compact":
                         compact(client, conversation, "manual")
                         continue
+                    if user_message.startswith("/tool-classifier"):
+                        change_classifier_mode(tool_classifier, user_message)
+                        continue
 
                     conversation.append_text_message(user_message, message_type="user")
                     with trace_turn(conversation.turn_number, user_message) as turn_span:
-                        final_answer = run_loop(client, conversation, sandbox)
+                        final_answer = run_loop(client, conversation, sandbox, tool_classifier)
                         # No answer when the call limit is hit or compaction fails.
                         if final_answer:
                             turn_span.set_output(value=final_answer)

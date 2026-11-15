@@ -93,7 +93,7 @@ to return that result.
 network services. No container ports are published. Install Python dependencies in a
 workspace virtual environment or use `pip install --target /workspace/.packages ...`,
 since the container's system directories remain read-only. Packages stored in the
-workspace persist across sessions. A tool-call approval model is not implemented yet.
+workspace persist across sessions. Every tool call is checked first; see Tool-call classifier below.
 
 ## Code flow
 
@@ -103,6 +103,7 @@ Code is grouped by feature; each folder keeps its own prompts.
 main.py, config.py        entry point and settings
 agent/                    the main model: model.py, conversation.py, prompts/
 compaction/               compact.py, prompts/
+tool_classifier/          classifier.py, utils.py, prompts/
 observability/            tracing.py (Phoenix traces of model calls)
 sandbox/                  sandbox.py (Docker side of the host)
 tools/                    tool package that runs inside Docker
@@ -125,6 +126,8 @@ utils/terminal.py         terminal input (prompt_toolkit) and output (Rich)
 - `compaction/compact.py`: `needs_compaction()` and `compact_conversation()`, which also
   makes the tool-free summary call; `compaction/prompts/` holds its system prompt and
   two templates. See Compaction below.
+- `tool_classifier/`: `ToolClassifier` decides whether each tool call runs; see Tool-call
+  classifier below.
 - `observability/tracing.py`: `start_tracing()`, called first in `start_agent()`; see Tracing below.
 - `sandbox/sandbox.py`: `Sandbox` builds/starts the container, executes argument lists in
   it, sends tool calls to the container's runner with `call_tool()`, and removes the
@@ -302,3 +305,39 @@ do nothing. Tool and compaction spans show OK (✓) or error (red, with the reas
 A tool counts as failed when its result is `{"error": ...}`, such as a refused path or
 a Docker failure; a `run_command` with a nonzero exit code is a normal result, since the
 tool itself worked. Turn spans have no status unless an exception occurs.
+
+## Tool-call classifier
+
+Before each tool call runs, `run_loop()` asks `ToolClassifier.decide()` in
+`tool_classifier/classifier.py`. The mode is printed at startup, starts from
+`TOOL_CLASSIFIER_MODE` in `config.py`, and can be changed during a session:
+
+| Command | Behavior |
+| --- | --- |
+| `/tool-classifier auto` | Default. A separate model (`CLASSIFIER_MODEL`) decides each call. |
+| `/tool-classifier allow_all` | No checks; every call runs. |
+| `/tool-classifier manual` | You answer `y` or `n` for each call, optionally with a note, such as `n, use git clean instead`. |
+| `/tool-classifier` | Show the current mode. |
+
+Every decider returns `Decision(allowed, decided_by, reason)`, defined in `classifier.py`.
+`reason` is optional, so a future decider that only says yes or no, such as a decision
+model, fits the same shape: it is one more `ToolClassifier` method returning a `Decision`.
+
+In `auto` mode, `ToolClassifier._classify_with_llm()` fills `prompts/input_template.md` with the last two
+user messages (each cut to 2,000 characters), the reasoning summary of the response
+that requested the call, and the call itself, and sends it with
+`prompts/system_prompt.md`. The model must answer with structured output:
+`{"allowed": true|false, "reason": "..."}`. If the call fails or the answer is
+unreadable, the tool call is denied.
+
+A rejected call does not run. The model receives, as that call's result:
+
+```text
+Not run: this tool call was rejected by the classifier. Reason: deletes files outside the task.
+```
+
+The history file records the decision in that tool result's metadata, for example
+`"decision": {"allowed": false, "decided_by": "user", "reason": "use git clean instead"}`.
+In Phoenix, each decision is a `GUARDRAIL` span named `classify <tool>`, and the
+classifier's model call nests inside it.
+

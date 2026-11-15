@@ -1,4 +1,5 @@
 import json
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -57,19 +58,28 @@ class Conversation:
         for item in response.output:
             api_item = item.model_dump(exclude_none=True)
             message_type = api_item.get("role") or api_item["type"]
-            response_metadata = {"response_id": response.id}
+            extra_metadata = {"response_id": response.id}
             if item is response.output[-1]:
-                response_metadata["usage"] = response.usage.model_dump() if response.usage else None
-            self._record_item(api_item, message_type, response_metadata)
+                extra_metadata["usage"] = response.usage.model_dump() if response.usage else None
+            self._record_item(api_item, message_type, extra_metadata)
 
         if response.usage:
             self.tokens_at_last_call = response.usage.input_tokens + response.usage.output_tokens
             self.characters_since_last_call = 0
 
-    def append_tool_result(self, call_id, output):
-        """Build the result item linked to the model's function call."""
+    def append_tool_result(self, call_id, output, decision=None):
+        """Build the result item linked to the model's function call.
+
+        The classifier's decision, if given, is saved in the history metadata only.
+        """
         api_item = {"type": "function_call_output", "call_id": call_id, "output": output}
-        self._record_item(api_item, "tool_result")
+        extra_metadata = {"decision": asdict(decision)} if decision else None
+        self._record_item(api_item, "tool_result", extra_metadata)
+
+    def recent_user_messages(self, count):
+        """Return the text of the last few user-role messages in the model input."""
+        user_texts = [item["content"] for item in self.model_input if item.get("role") == "user"]
+        return user_texts[-count:]
 
     def estimated_input_tokens(self):
         """Estimate the next call's input: exact tokens so far plus about 4 characters per token."""
@@ -97,14 +107,14 @@ class Conversation:
         # Recorded directly, not through append_text_message, so the turn does not advance.
         self._record_item({"role": "user", "content": continuation_text}, "user")
 
-    def _record_item(self, api_item, message_type, response_metadata=None):
+    def _record_item(self, api_item, message_type, extra_metadata=None):
         """Write an enriched history record and keep the original item for the API."""
         history_record = {
             "metadata": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "turn_number": self.turn_number,
                 "message_type": message_type,
-                **(response_metadata or {}),
+                **(extra_metadata or {}),
             },
             "message": api_item,
         }

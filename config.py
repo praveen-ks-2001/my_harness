@@ -16,11 +16,17 @@ MAX_MODEL_CALLS_PER_TURN = 20
 CONTEXT_WINDOW_TOKENS = 100_000
 COMPACT_AT_FRACTION = 0.7
 
+# Tool-call classifier mode: auto | allow_all | manual.
+TOOL_CLASSIFIER_MODE = "auto"
+CLASSIFIER_MODEL = "gpt-6-luna"
+
 # Prompt and conversation history.
 SYSTEM_MESSAGE_FILE = PROJECT_DIRECTORY / "agent" / "prompts" / "system_message.md"
 COMPACTION_SYSTEM_PROMPT_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "system_prompt.md"
 COMPACTION_INPUT_TEMPLATE_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "input_template.md"
 COMPACTION_CONTINUATION_TEMPLATE_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "continuation_template.md"
+TOOL_CLASSIFIER_SYSTEM_PROMPT_FILE = PROJECT_DIRECTORY / "tool_classifier" / "prompts" / "system_prompt.md"
+TOOL_CLASSIFIER_INPUT_TEMPLATE_FILE = PROJECT_DIRECTORY / "tool_classifier" / "prompts" / "input_template.md"
 HISTORY_DIRECTORY = PROJECT_DIRECTORY / "chat_history"
 
 # Workspace locations.

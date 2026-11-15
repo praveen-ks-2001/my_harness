@@ -30,9 +30,21 @@ def insert_newline(event):
 
 
 user_prompt = PromptSession(
-    completer=WordCompleter(["/compact", "quit", "exit"], sentence=True),
+    completer=WordCompleter(
+        [
+            "/compact",
+            "/tool-classifier",
+            "/tool-classifier auto",
+            "/tool-classifier allow_all",
+            "/tool-classifier manual",
+            "quit",
+            "exit",
+        ],
+        sentence=True,
+    ),
     key_bindings=newline_keys,
 )
+approval_prompt = PromptSession()
 folder_prompt = PromptSession(completer=PathCompleter(only_directories=True, expanduser=True))
 
 LABEL_STYLES = {
@@ -43,6 +55,8 @@ LABEL_STYLES = {
     "TOOL": "bold yellow",
     "TOOL RESULT": "bold yellow",
     "COMPACTION": "bold blue",
+    "APPROVAL": "bold yellow",
+    "REJECTED": "bold red",
     "ERROR": "bold red",
 }
 CONTENT_LABELS = {"output_text": "ASSISTANT", "refusal": "REFUSAL"}
@@ -119,6 +133,35 @@ def pretty_json(text):
     except json.JSONDecodeError:
         return text
 
+
+def ask_tool_approval():
+    """Ask whether the tool call just printed may run; return (allowed, note).
+
+    Accepts y/yes or n/no, optionally followed by a note, such as "n, use a safer command".
+    """
+    print_label("APPROVAL")
+    while True:
+        answer = approval_prompt.prompt("Run this tool call? [y/n, optional note] ").strip()
+        first_word, _, note = answer.replace(",", " ", 1).partition(" ")
+        if first_word.lower() in {"y", "yes"}:
+            return True, note.strip()
+        if first_word.lower() in {"n", "no"}:
+            return False, note.strip()
+        print_notice("ERROR", "Please start with y or n.")
+
+def print_classifier_mode(tool_classifier):
+    modes = "|".join(tool_classifier.MODES)
+    print_notice("INFO", f"Tool classifier: {tool_classifier.mode} (change with /tool-classifier {modes})")
+
+
+def change_classifier_mode(tool_classifier, user_message):
+    """Handle /tool-classifier [mode]: switch the mode if one is given, then show it."""
+    words = user_message.split()
+    if len(words) == 2 and words[1] in tool_classifier.MODES:
+        tool_classifier.mode = words[1]
+    elif len(words) != 1:
+        print_notice("ERROR", f"Unknown mode. Choose one of: {', '.join(tool_classifier.MODES)}.")
+    print_classifier_mode(tool_classifier)
 
 def choose_workspace():
     print_notice("WORKSPACE", f"Enter a working folder (Tab completes paths), or press Enter for {config.DEFAULT_WORKSPACE_DIRECTORY}")
