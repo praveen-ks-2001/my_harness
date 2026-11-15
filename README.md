@@ -97,7 +97,8 @@ workspace persist across sessions. A tool-call approval model is not implemented
 - `main.py`: `start_agent()` reads user input; `run_loop()` calls the model until it
   stops requesting tools, or until `MAX_MODEL_CALLS_PER_TURN` calls have been made in
   that turn. It then prints an `[INFO]` notice and waits for the next user input.
-  `choose_workspace()` asks for the working folder.
+- `utils/terminal.py`: `choose_workspace()` asks for the working folder; `print_stream()`
+  prints a streamed response.
 - `conversation.py`: `Conversation` owns the message list, turn number, and history
   file path. Its methods build message dictionaries and record them in context and JSONL.
 - `sandbox.py`: `Sandbox` builds/starts the container, executes argument lists in it,
@@ -117,7 +118,7 @@ workspace persist across sessions. A tool-call approval model is not implemented
 - `prompts/system_message.md`: system instructions, read once by `start_agent()`.
 
 The message list is created once, before the input loop, so follow-up questions retain
-earlier context. Responses are streamed: `print_stream()` in `main.py` prints reasoning
+earlier context. Responses are streamed: `print_stream()` in `utils/terminal.py` prints reasoning
 summaries and assistant text as they arrive. Once the response completes,
 `stream.get_final_response()` returns the full response, which is saved, and its tool
 calls are executed one by one. Their results are included in the next model request.

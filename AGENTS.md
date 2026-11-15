@@ -13,7 +13,8 @@ take precedence. Keep changes small and discuss additional architecture before a
 
 | Location | Responsibility |
 | --- | --- |
-| [main.py](main.py) | Workspace selection, startup, terminal I/O, and the model/tool loop. |
+| [main.py](main.py) | Startup, the user-input loop, and the model/tool loop. |
+| [utils/terminal.py](utils/terminal.py) | Workspace prompt and streamed-output printing. |
 | [model.py](model.py) | Streamed OpenAI Responses API call. |
 | [conversation.py](conversation.py) | API input items, turn numbering, and JSONL history. |
 | [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
