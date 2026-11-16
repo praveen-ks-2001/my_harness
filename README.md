@@ -17,7 +17,9 @@ uv run main.py
 `config.py` loads the project's `.env` file automatically using `python-dotenv`.
 Variables already set in the environment take priority over values in `.env`.
 
-At startup, enter an existing folder the tools may read and modify. Press Enter to
+At startup, choose **New session** or one of the recent saved sessions (arrow keys, then
+Enter); see Resuming a session below. For a new session, enter an existing folder the
+tools may read and modify. Press Enter to
 create or reuse the default `workspace/` folder in this project. Type `quit` or `exit`
 to finish the conversation, or `/compact` to summarize the conversation so far.
 
@@ -121,8 +123,9 @@ utils/terminal.py         terminal input (prompt_toolkit) and output (Rich)
 - `agent/model.py`: `stream_model()` starts a streamed API request.
 - `agent/conversation.py`: `Conversation` owns the message list, turn number, and history
   file path. Its methods build message dictionaries and record them in context and JSONL.
-- `agent/prompts/system_message.md`: system instructions, read once by `start_agent()`,
+- `agent/prompts/system_message.md`: system instructions, read by `Conversation.start()`,
   which fills in `{history_file}` and `{history_directory}` with the container paths.
+  A resumed session reuses the system message saved in its file.
 - `compaction/compact.py`: `needs_compaction()` and `compact_conversation()`, which also
   makes the tool-free summary call; `compaction/prompts/` holds its system prompt and
   two templates. See Compaction below.
@@ -158,7 +161,7 @@ Each label is followed by its content on a new line.
 The loop passes a single `conversation` object between turns:
 
 ```python
-conversation = Conversation(workspace_directory, sandbox.container_id)
+conversation = Conversation.start(workspace_directory, sandbox.container_id)
 conversation.append_text_message("Hello", message_type="user")
 with stream_model(client, conversation.model_input) as stream:
     print_stream(stream)
@@ -340,4 +343,28 @@ The history file records the decision in that tool result's metadata, for exampl
 `"decision": {"allowed": false, "decided_by": "user", "reason": "use git clean instead"}`.
 In Phoenix, each decision is a `GUARDRAIL` span named `classify <tool>`, and the
 classifier's model call nests inside it.
+
+## Resuming a session
+
+At startup, `choose_session()` in `utils/terminal.py` lists saved sessions, newest
+first, `RESUME_SESSIONS_PER_PAGE` at a time, with **Next page →** and **← Previous page**
+options. Each row shows when the session was last active, its turn count, and your first
+and last message. History files from before the turn-zero session record existed (no
+workspace recorded) are not listed. Choosing one:
+
+1. Reuses the workspace from its session record (an error if that folder is gone).
+2. Starts a fresh sandbox container, since containers are removed on exit.
+3. Calls `Conversation.resume()`, which keeps appending to the **same** history file, so
+   the Phoenix session (named after the file) continues too. It rebuilds `model_input`
+   as the saved system message plus every item after the last `compaction_summary`
+   record, or after the system message if the session was never compacted. Token
+   counters are replayed from the stored `usage`, so the compaction check stays exact.
+   A function call left without a result (after a crash or Ctrl-C) gets the result
+   "Not run: the session ended before this tool call ran." A file-only
+   `session_resumed` record saves the new container id and model.
+4. Reprints the last `RESUME_REPLAY_TURNS` turns from the whole file, so you see your
+   real conversation even where the model now sees a compaction summary.
+
+The turn number continues from the file, and the classifier starts from
+`TOOL_CLASSIFIER_MODE`.
 

@@ -12,6 +12,10 @@ load_dotenv(PROJECT_DIRECTORY / ".env")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "")
 MAX_MODEL_CALLS_PER_TURN = 20
 
+# Resuming: sessions per page in the startup menu, and turns reprinted after choosing one.
+RESUME_SESSIONS_PER_PAGE = 10
+RESUME_REPLAY_TURNS = 10
+
 # Compaction: summarize the conversation once its input passes this share of the window.
 CONTEXT_WINDOW_TOKENS = 100_000
 COMPACT_AT_FRACTION = 0.7

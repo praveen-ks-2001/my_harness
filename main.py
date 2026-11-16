@@ -1,7 +1,7 @@
 from openai import OpenAI, OpenAIError
 
 import config
-from agent.conversation import Conversation
+from agent.conversation import Conversation, saved_workspace
 from agent.model import stream_model
 from compaction.compact import compact_conversation, needs_compaction
 from observability.tracing import (
@@ -21,9 +21,11 @@ from tool_classifier.classifier import ToolClassifier
 from tool_classifier.utils import rejection_message
 from utils.terminal import (
     change_classifier_mode,
+    choose_session,
     choose_workspace,
     print_classifier_mode,
     print_notice,
+    print_replay,
     print_stream,
     print_tool_call,
     print_tool_result,
@@ -93,20 +95,18 @@ def run_loop(client, conversation, sandbox, tool_classifier):
 
 def start_agent():
     start_tracing()
-    system_message = config.SYSTEM_MESSAGE_FILE.read_text(encoding="utf-8")
 
     with OpenAI() as client:
-        workspace_directory = choose_workspace()
+        resume_path = choose_session()
+        workspace_directory = choose_workspace() if resume_path is None else saved_workspace(resume_path)
         print_notice("SANDBOX", "Preparing the Docker image and workspace container...")
         tool_classifier = ToolClassifier(client, mode=config.TOOL_CLASSIFIER_MODE)
         with Sandbox(workspace_directory) as sandbox:
-            conversation = Conversation(workspace_directory, sandbox.container_id)
-            container_history_file = f"{config.CONTAINER_HISTORY_DIRECTORY}/{conversation.history_path.name}"
-            system_message = system_message.format(
-                history_file=container_history_file,
-                history_directory=config.CONTAINER_HISTORY_DIRECTORY,
-            )
-            conversation.append_text_message(system_message, message_type="system")
+            if resume_path is None:
+                conversation = Conversation.start(workspace_directory, sandbox.container_id)
+            else:
+                conversation = Conversation.resume(resume_path, sandbox.container_id)
+                print_replay(resume_path, turn_count=config.RESUME_REPLAY_TURNS)
             print_notice("HISTORY", str(conversation.history_path))
             print_classifier_mode(tool_classifier)
             print_notice("INFO", "Type quit to exit, or /compact to summarize the conversation so far. Tab completes commands; Up/Down recall earlier messages.")

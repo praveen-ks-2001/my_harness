@@ -18,8 +18,8 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 | [main.py](main.py) | Startup, the user-input loop, and the model/tool loop. |
 | [utils/terminal.py](utils/terminal.py) | All terminal I/O: prompt_toolkit input (history, Tab completion, paste) and Rich output (colored labels, Markdown answers, JSON tool calls). |
 | [agent/model.py](agent/model.py) | Streamed OpenAI Responses API call. |
-| [agent/conversation.py](agent/conversation.py) | API input items, turn numbering, and JSONL history. |
-| [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions; `{history_file}` and `{history_directory}` are filled in by `start_agent()`. |
+| [agent/conversation.py](agent/conversation.py) | API input items, turn numbering, and JSONL history. `Conversation.start()` creates a session; `Conversation.resume()` rebuilds one from its file. |
+| [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions; `{history_file}` and `{history_directory}` are filled in by `Conversation.start()`. |
 | [compaction/compact.py](compaction/compact.py) | When to compact, the summary call, splitting `model_input` into units, and rendering items as XML. |
 | [compaction/prompts/](compaction/prompts/) | The summarizer's system prompt, its input template, and the continuation template. |
 | [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
@@ -54,6 +54,11 @@ each feature keeps its prompts in its own `prompts/` subfolder.
   decision is saved as `decision` in that tool result's history metadata. The LLM
   classifier sees the last two user messages, the response's reasoning summary, and the
   call, and denies if it fails. `reason` is optional so yes/no-only deciders fit.
+- Resuming (chosen at startup) appends to the same history file. `model_input` is rebuilt
+  as the system record plus every item after the last `compaction_summary` (or after the
+  system record), token counters are replayed from stored `usage` (skipping the
+  compaction record's), unanswered function calls get a "Not run" result, and a
+  file-only `session_resumed` record holds the new container id and model.
 - One user turn makes at most `MAX_MODEL_CALLS_PER_TURN` model calls, then control
   returns to the user.
 - Before every model call, the input size is estimated as the last call's exact
@@ -71,7 +76,7 @@ Current tools: `read_file`, `write_file`, `edit_file`, `run_command`, and `curre
 Tracing: one Phoenix session per run (`session.id` = history file stem), one trace per
 user turn. Tool and compaction spans are marked OK or error; a tool result of
 `{"error": ...}` counts as failed, while a nonzero `run_command` exit does not.
-Session resume and subagents remain future work;
+Subagents remain future work;
 their mention is not authorization to implement them. Verification preferences,
 commit-message conventions, and the rule to keep this file and the README current
 after every code change are in the coding preferences linked above.
