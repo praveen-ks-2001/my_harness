@@ -63,7 +63,8 @@
   and tool results within a user turn retain that turn's number.
 - Ask for one working folder at startup, defaulting to a reusable `workspace/` folder.
   Keep the Python harness on the host and execute all tools inside Docker, including
-  Python scripts. Never silently fall back to local tool execution.
+  Python scripts. Never silently fall back to local tool execution. The only exception is
+  host tools that store the model's data arguments in the harness, such as the task tools.
 - Share only the selected workspace (read/write) and `sessions/` (read-only) with the
   container. Keep the harness and credentials outside it. Record workspace/container details in a turn-zero
   session record before conversation items; this record is not model input.

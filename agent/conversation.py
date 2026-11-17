@@ -57,6 +57,7 @@ class Conversation:
             sessions_directory=config.CONTAINER_SESSIONS_DIRECTORY,
             session_directory=container_session_directory,
             history_file=f"{container_session_directory}/{config.HISTORY_FILE_NAME}",
+            tasks_file=f"{container_session_directory}/{config.TASKS_FILE_NAME}",
         )
         conversation.append_text_message(system_message, message_type="system")
         return conversation
@@ -69,10 +70,12 @@ class Conversation:
         compaction_summary record (or after the system message if there is none),
         exactly what it held when the session ended.
         """
+        # Continue the turn numbering from the file.
         conversation = cls(session_directory)
         records = read_history(conversation.history_path)
         conversation.turn_number = max(record["metadata"]["turn_number"] for record in records)
 
+        # Rebuild the model input: the system message, then everything after the last compaction.
         message_types = [record["metadata"]["message_type"] for record in records]
         system_index = message_types.index("system")
         compaction_indexes = [index for index, message_type in enumerate(message_types) if message_type == "compaction_summary"]
@@ -97,6 +100,7 @@ class Conversation:
             if item.get("type") == "function_call" and item["call_id"] not in answered_call_ids:
                 conversation.append_tool_result(item["call_id"], "Not run: the session ended before this tool call ran.")
 
+        # Note the resume, with its new container, in the file only.
         conversation._write_history_record({
             "metadata": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),

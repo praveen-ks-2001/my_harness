@@ -30,8 +30,9 @@ Selecting a folder that contains the harness or its sessions is refused, so thos
 files and credentials stay outside the tool workspace.
 
 The Python conversation loop and model API client run on the host. All tool calls,
-including `current_time`, execute inside Docker. There is no local execution fallback
-if Docker is unavailable. The container is removed on normal exit or when an exception
+including `current_time`, execute inside Docker, except the task tools, which only
+store the model's arguments in the harness (see Tasks below). There is no local
+execution fallback if Docker is unavailable. The container is removed on normal exit or when an exception
 unwinds the session; workspace files remain on disk.
 
 The container runs as the host user's UID/GID, with outbound networking, a read-only root
@@ -52,6 +53,7 @@ credentials, chat history, and the rest of the harness are not copied into it.
 | `edit_file(path, old_text, new_text)` | Replace an exact, nonempty text match that occurs only once. |
 | `run_command(command)` | Run Bash from the workspace and return stdout, stderr, exit code, and timeout status. |
 | `current_time(timezone="UTC")` | Return the current time in an IANA timezone. |
+| `create_tasks(tasks)`, `update_task(task_id, status, result=None)`, `read_tasks(task_id=None)` | Host tools for the session's task list; see Tasks below. |
 
 ### Adding a tool
 
@@ -106,6 +108,7 @@ main.py, config.py        entry point and settings
 agent/                    the main model: model.py, conversation.py, prompts/
 compaction/               compact.py, prompts/
 tool_classifier/          classifier.py, utils.py, prompts/
+tasks/                    task_list.py (the task list and its host tools)
 observability/            tracing.py (Phoenix traces of model calls)
 sandbox/                  sandbox.py (Docker side of the host)
 tools/                    tool package that runs inside Docker
@@ -344,7 +347,38 @@ Not run: this tool call was rejected by the classifier. Reason: deletes files ou
 The history file records the decision in that tool result's metadata, for example
 `"decision": {"allowed": false, "decided_by": "user", "reason": "use git clean instead"}`.
 In Phoenix, each decision is a `GUARDRAIL` span named `classify <tool>`, and the
-classifier's model call nests inside it.
+classifier's model call nests inside it. Task tools skip the classifier (see Tasks).
+
+## Tasks
+
+For work with several steps, the model keeps a task list with three host tools. They
+run in the harness, not in Docker: they take only JSON arguments, never a path or a
+command, and only store them. `TaskList` in `tasks/task_list.py` holds the list and saves
+it to the session folder's `tasks.json` after every change; the container sees that file
+read-only at `/sessions/<session>/tasks.json`.
+
+| Tool | Model gives | Returns |
+| --- | --- | --- |
+| `create_tasks(tasks)` | Each task's `title`, `description`, and `acceptance_criteria` | The new tasks |
+| `update_task(task_id, status, result=None)` | `status` (`pending`, `in_progress`, `done`, `blocked`) and `result` | The updated task |
+| `read_tasks(task_id=None)` | An optional id | Every task, or that one |
+
+Every returned task has all its fields:
+
+```json
+{"id": 1, "title": "…", "description": "…", "acceptance_criteria": "…", "status": "pending", "result": null, "owner": "main_agent"}
+```
+
+The harness assigns `id`, the initial `pending` status, and `owner`. `blocked` means the
+model tried but cannot finish the task now, for example because a dependency is missing;
+it can go back to `in_progress` later. `update_task` refuses `done` or `blocked` without a
+nonempty `result` (for blocked: what was tried and what stops it); a rule break or
+invalid argument comes back to the model as `{"error": ...}`. The schemas come from the methods' type hints and
+docstrings, through the same `build_schema()` as the Docker tools, and
+`stream_model()` sends them alongside the Docker tools' schemas. Task tool calls skip
+the classifier, since they cannot touch files or the network; their history metadata
+records `"decided_by": "harness"`. They still get a tool span in Phoenix. A resumed
+session reloads its `tasks.json`.
 
 ## Resuming a session
 

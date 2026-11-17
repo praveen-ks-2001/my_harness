@@ -19,10 +19,11 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 | [utils/terminal.py](utils/terminal.py) | All terminal I/O: prompt_toolkit input (history, Tab completion, paste) and Rich output (colored labels, Markdown answers, JSON tool calls). |
 | [agent/model.py](agent/model.py) | Streamed OpenAI Responses API call. |
 | [agent/conversation.py](agent/conversation.py) | API input items, turn numbering, and JSONL history. `Conversation.start()` creates a session; `Conversation.resume()` rebuilds one from its folder's history file. |
-| [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions; `{sessions_directory}`, `{session_directory}`, and `{history_file}` are filled in by `Conversation.start()`. |
+| [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions; `{sessions_directory}`, `{session_directory}`, `{history_file}`, and `{tasks_file}` are filled in by `Conversation.start()`. |
 | [compaction/compact.py](compaction/compact.py) | When to compact, the summary call, splitting `model_input` into units, and rendering items as XML. |
 | [compaction/prompts/](compaction/prompts/) | The summarizer's system prompt, its input template, and the continuation template. |
 | [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
+| [tasks/task_list.py](tasks/task_list.py) | `TaskList`: the session's task list in `tasks.json` and its host tools `create_tasks`, `update_task`, `read_tasks` (`TOOL_NAMES`), with schemas from `build_schema()`. |
 | [tool_classifier/](tool_classifier/) | Decides before each tool call whether it runs: `ToolClassifier.decide()` returns a `Decision(allowed, decided_by, reason)`. Modes `auto` (LLM, `_classify_with_llm`), `allow_all`, `manual`; helpers in `utils.py`, prompts in `prompts/`. |
 | [observability/tracing.py](observability/tracing.py) | `start_tracing()` (OpenAI calls auto-traced to local Phoenix) and the `trace_session`/`trace_turn`/`trace_tool`/`trace_compaction` blocks used in `main.py`. |
 | [sandbox/sandbox.py](sandbox/sandbox.py) | Docker lifecycle, command execution, and `Sandbox.call_tool()`. |
@@ -42,7 +43,7 @@ each feature keeps its prompts in its own `prompts/` subfolder.
   sessions. The default workspace is a reusable local `workspace/`; harness code and
   credentials stay outside, and a workspace containing the harness or sessions is refused.
 - Each run gets a session folder `sessions/main_agent_YYYYMMDD_HHMMSS_ffffff/` holding
-  `history.jsonl`; the folder name identifies the session. The file tools only reach
+  `history.jsonl` and, once tasks exist, `tasks.json`; the folder name identifies the session. The file tools only reach
   `/workspace`, so the model reads history with `run_command` (`rg`, `jq`, `sed`).
 - Tool schemas come from type hints and Google-style docstrings; every argument needs
   an `Args:` entry or startup fails. The host only builds schemas; tool functions run
@@ -70,10 +71,16 @@ each feature keeps its prompts in its own `prompts/` subfolder.
   gets a `compaction_summary` record, then that message as a normal `user` record that
   keeps the current turn number; only real user input advances the turn. Rebuilding from history means: system message plus
   everything after the last `compaction_summary` record.
+- Task tools are host tools: `run_loop` sends names in `TaskList.TOOL_NAMES` to
+  `TaskList.call_tool()` instead of Docker, without the classifier (`decided_by: "harness"`).
+  A host tool takes only data arguments, never a path, command, or URL. Only the harness
+  writes `tasks.json`; statuses are `pending`, `in_progress`, `done`, `blocked`, and
+  `update_task` refuses `done` or `blocked` without a `result`.
 - Tools have outbound network access. Install dependencies in the workspace, since
   the container root is read-only. There is no host-execution fallback.
 
-Current tools: `read_file`, `write_file`, `edit_file`, `run_command`, and `current_time`.
+Current tools: `read_file`, `write_file`, `edit_file`, `run_command`, and `current_time`
+(Docker), plus `create_tasks`, `update_task`, and `read_tasks` (host).
 Tracing: one Phoenix session per run (`session.id` = session folder name), one trace per
 user turn. Tool and compaction spans are marked OK or error; a tool result of
 `{"error": ...}` counts as failed, while a nonzero `run_command` exit does not.
