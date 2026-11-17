@@ -26,7 +26,7 @@ to finish the conversation, or `/compact` to summarize the conversation so far.
 The harness builds a small Docker image and starts one container for the session.
 Subsequent starts reuse Docker's build cache. The selected host folder is mounted
 read/write at `/workspace` inside that container. Paths containing spaces work.
-Selecting a folder that contains the harness or its history is refused, so those
+Selecting a folder that contains the harness or its sessions is refused, so those
 files and credentials stay outside the tool workspace.
 
 The Python conversation loop and model API client run on the host. All tool calls,
@@ -36,10 +36,10 @@ unwinds the session; workspace files remain on disk.
 
 The container runs as the host user's UID/GID, with outbound networking, a read-only root
 filesystem, and temporary writable `/tmp` storage. Besides the workspace, only the
-`chat_history/` folder is shared, read-only at `/chat_history`: the model can search
-this session and past ones, but cannot change them. The system message tells it the
-current session's file path and to search with `rg` and `jq` instead of reading whole
-files. The image contains Python, Bash, Git, ripgrep, jq, timezone data, Pydantic, `docstring-parser`,
+`sessions/` folder is shared, read-only at `/sessions`: the model can search this
+session and past ones, but cannot change them. The system message tells it the
+current session's folder and history file and to search with `rg` and `jq` instead of
+reading whole files. The image contains Python, Bash, Git, ripgrep, jq, timezone data, Pydantic, `docstring-parser`,
 and the `tools/` package; API
 credentials, chat history, and the rest of the harness are not copied into it.
 
@@ -115,16 +115,17 @@ utils/terminal.py         terminal input (prompt_toolkit) and output (Rich)
 - `main.py`: `start_agent()` reads user input; `run_loop()` calls the model until it
   stops requesting tools, or until `MAX_MODEL_CALLS_PER_TURN` calls have been made in
   that turn. It then prints an `[INFO]` notice and waits for the next user input.
-- `config.py`: history directory, prompt paths, OpenAI model name, model-call
+- `config.py`: sessions folder, prompt paths, OpenAI model name, model-call
   limit per turn, compaction threshold, workspace paths, sandbox image/network
   settings, and tool timeout, grouped by purpose. Project paths are relative to the
   project directory. The model name is read from `OPENAI_MODEL` in the environment;
   it can also be set directly in this file.
 - `agent/model.py`: `stream_model()` starts a streamed API request.
-- `agent/conversation.py`: `Conversation` owns the message list, turn number, and history
-  file path. Its methods build message dictionaries and record them in context and JSONL.
+- `agent/conversation.py`: `Conversation` owns the message list, turn number, session
+  folder, and history file path. Its methods build message dictionaries and record them in context and JSONL.
 - `agent/prompts/system_message.md`: system instructions, read by `Conversation.start()`,
-  which fills in `{history_file}` and `{history_directory}` with the container paths.
+  which fills in `{sessions_directory}`, `{session_directory}`, and `{history_file}`
+  with the container paths.
   A resumed session reuses the system message saved in its file.
 - `compaction/compact.py`: `needs_compaction()` and `compact_conversation()`, which also
   makes the tool-free summary call; `compaction/prompts/` holds its system prompt and
@@ -181,8 +182,9 @@ record containing metadata and the item, then appends only the original item to
 The turn counter and file writing also live in this method. The leading underscore
 marks it as an internal helper.
 
-Every run creates `chat_history/main_agent_YYYYMMDD_HHMMSS_microseconds.jsonl`.
-The first line is a turn-zero session record, before any conversation items:
+Every run creates its own folder, `sessions/main_agent_YYYYMMDD_HHMMSS_microseconds/`,
+with the conversation history in `history.jsonl` inside it. The first line is a
+turn-zero session record, before any conversation items:
 
 ```json
 {
@@ -226,7 +228,7 @@ Summing `usage` across the file gives the session's token use.
 
 `conversation.model_input` contains only the original API items, without the file metadata.
 Items are saved immediately, and `call_id` links each tool result to its call.
-The history folder is gitignored. Existing logs keep their original format and metadata.
+The sessions folder is gitignored. Existing logs keep their original format and metadata.
 
 ## Compaction
 
@@ -290,7 +292,7 @@ and timing. Traces are sent from a background thread.
 `main.py` groups the spans with the `with` blocks from `observability/tracing.py`:
 
 ```
-session  main_agent_<timestamp>      trace_session: the whole run, named after its history file
+session  main_agent_<timestamp>      trace_session: the whole run, named after its session folder
 └─ turn 1                            trace_turn: one trace per user turn (input and final answer)
    ├─ Response                       model call, traced automatically
    ├─ current_time                   trace_tool: tool name, arguments, result
@@ -349,13 +351,13 @@ classifier's model call nests inside it.
 At startup, `choose_session()` in `utils/terminal.py` lists saved sessions, newest
 first, `RESUME_SESSIONS_PER_PAGE` at a time, with **Next page →** and **← Previous page**
 options. Each row shows when the session was last active, its turn count, and your first
-and last message. History files from before the turn-zero session record existed (no
+and last message. Sessions from before the turn-zero session record existed (no
 workspace recorded) are not listed. Choosing one:
 
 1. Reuses the workspace from its session record (an error if that folder is gone).
 2. Starts a fresh sandbox container, since containers are removed on exit.
 3. Calls `Conversation.resume()`, which keeps appending to the **same** history file, so
-   the Phoenix session (named after the file) continues too. It rebuilds `model_input`
+   the Phoenix session (named after the session folder) continues too. It rebuilds `model_input`
    as the saved system message plus every item after the last `compaction_summary`
    record, or after the system message if the session was never compacted. Token
    counters are replayed from the stored `usage`, so the compaction check stays exact.

@@ -57,14 +57,14 @@
 - Initialize one conversation before the user-input loop so history survives across turns.
 - Keep API input and file records distinct: `model_input` contains original API items;
   JSONL records wrap those items with metadata. Never send the metadata wrapper to OpenAI.
-- Save history continuously in `chat_history/` with a timestamp filename. Record the
+- Save history continuously in `sessions/<timestamped session folder>/history.jsonl`. Record the
   timestamp, user-turn number, and message type alongside the original item.
 - Count a turn once per user input. The initial system message is turn 0; model calls
   and tool results within a user turn retain that turn's number.
 - Ask for one working folder at startup, defaulting to a reusable `workspace/` folder.
   Keep the Python harness on the host and execute all tools inside Docker, including
   Python scripts. Never silently fall back to local tool execution.
-- Share only the selected workspace (read/write) and `chat_history/` (read-only) with the
+- Share only the selected workspace (read/write) and `sessions/` (read-only) with the
   container. Keep the harness and credentials outside it. Record workspace/container details in a turn-zero
   session record before conversation items; this record is not model input.
 - Allow Docker tools outbound network access for downloads and package installation.

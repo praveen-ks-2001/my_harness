@@ -97,22 +97,22 @@ def start_agent():
     start_tracing()
 
     with OpenAI() as client:
-        resume_path = choose_session()
-        workspace_directory = choose_workspace() if resume_path is None else saved_workspace(resume_path)
+        resume_directory = choose_session()
+        workspace_directory = choose_workspace() if resume_directory is None else saved_workspace(resume_directory)
         print_notice("SANDBOX", "Preparing the Docker image and workspace container...")
         tool_classifier = ToolClassifier(client, mode=config.TOOL_CLASSIFIER_MODE)
         with Sandbox(workspace_directory) as sandbox:
-            if resume_path is None:
+            if resume_directory is None:
                 conversation = Conversation.start(workspace_directory, sandbox.container_id)
             else:
-                conversation = Conversation.resume(resume_path, sandbox.container_id)
-                print_replay(resume_path, turn_count=config.RESUME_REPLAY_TURNS)
+                conversation = Conversation.resume(resume_directory, sandbox.container_id)
+                print_replay(conversation.history_path, turn_count=config.RESUME_REPLAY_TURNS)
             print_notice("HISTORY", str(conversation.history_path))
             print_classifier_mode(tool_classifier)
             print_notice("INFO", "Type quit to exit, or /compact to summarize the conversation so far. Tab completes commands; Up/Down recall earlier messages.")
 
-            # One Phoenix session per run, named after its history file.
-            with trace_session(conversation.history_path.stem):
+            # One Phoenix session per run, named after its session folder.
+            with trace_session(conversation.session_directory.name):
                 while True:
                     try:
                         user_message = read_user_message()

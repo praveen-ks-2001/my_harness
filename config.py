@@ -24,19 +24,22 @@ COMPACT_AT_FRACTION = 0.7
 TOOL_CLASSIFIER_MODE = "auto"
 CLASSIFIER_MODEL = "gpt-6-luna"
 
-# Prompt and conversation history.
+# Prompt files.
 SYSTEM_MESSAGE_FILE = PROJECT_DIRECTORY / "agent" / "prompts" / "system_message.md"
 COMPACTION_SYSTEM_PROMPT_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "system_prompt.md"
 COMPACTION_INPUT_TEMPLATE_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "input_template.md"
 COMPACTION_CONTINUATION_TEMPLATE_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "continuation_template.md"
 TOOL_CLASSIFIER_SYSTEM_PROMPT_FILE = PROJECT_DIRECTORY / "tool_classifier" / "prompts" / "system_prompt.md"
 TOOL_CLASSIFIER_INPUT_TEMPLATE_FILE = PROJECT_DIRECTORY / "tool_classifier" / "prompts" / "input_template.md"
-HISTORY_DIRECTORY = PROJECT_DIRECTORY / "chat_history"
+
+# Session folders: one per run, holding its history; the container sees them read-only.
+SESSIONS_DIRECTORY = PROJECT_DIRECTORY / "sessions"
+CONTAINER_SESSIONS_DIRECTORY = "/sessions"
+HISTORY_FILE_NAME = "history.jsonl"
 
 # Workspace locations.
 DEFAULT_WORKSPACE_DIRECTORY = PROJECT_DIRECTORY / "workspace"
 CONTAINER_WORKSPACE_DIRECTORY = "/workspace"
-CONTAINER_HISTORY_DIRECTORY = "/chat_history"
 
 # Tracing in a local Phoenix server; the README's Tracing section has the docker run command.
 TRACING_ENABLED = True

@@ -7,14 +7,15 @@ import config
 
 
 class Conversation:
-    """Keep the model's messages and their JSONL history together.
+    """Keep the model's messages and their JSONL history together, in the session's own folder.
 
     Create one with Conversation.start() for a new session, or Conversation.resume()
     to continue a saved one.
     """
 
-    def __init__(self, history_path):
-        self.history_path = Path(history_path)
+    def __init__(self, session_directory):
+        self.session_directory = Path(session_directory)
+        self.history_path = self.session_directory / config.HISTORY_FILE_NAME
         self.model_input = []
         self.turn_number = 0
         # The last call's exact input size, plus the characters of items added since.
@@ -22,18 +23,17 @@ class Conversation:
         self.characters_since_last_call = 0
 
     @classmethod
-    def start(cls, workspace_directory, container_id, history_directory=None):
-        """Create a new history file with its turn-zero session record, then add the system message.
+    def start(cls, workspace_directory, container_id, sessions_directory=None):
+        """Create a new session folder and history file with its turn-zero session record, then add the system message.
 
-        The system message is filled with this session's history file path, as the
-        container sees it, so the model can search its own history.
+        The system message is filled with this session's paths, as the container sees
+        them, so the model can search its own history.
         """
-        if history_directory is None:
-            history_directory = config.HISTORY_DIRECTORY
-        history_directory = Path(history_directory)
-        history_directory.mkdir(parents=True, exist_ok=True)
+        if sessions_directory is None:
+            sessions_directory = config.SESSIONS_DIRECTORY
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        conversation = cls(history_directory / f"main_agent_{timestamp}.jsonl")
+        conversation = cls(Path(sessions_directory) / f"main_agent_{timestamp}")
+        conversation.session_directory.mkdir(parents=True)
         session_record = {
             "metadata": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -52,23 +52,25 @@ class Conversation:
         with conversation.history_path.open("x", encoding="utf-8") as history_file:
             history_file.write(json.dumps(session_record, ensure_ascii=False) + "\n")
 
+        container_session_directory = f"{config.CONTAINER_SESSIONS_DIRECTORY}/{conversation.session_directory.name}"
         system_message = config.SYSTEM_MESSAGE_FILE.read_text(encoding="utf-8").format(
-            history_file=f"{config.CONTAINER_HISTORY_DIRECTORY}/{conversation.history_path.name}",
-            history_directory=config.CONTAINER_HISTORY_DIRECTORY,
+            sessions_directory=config.CONTAINER_SESSIONS_DIRECTORY,
+            session_directory=container_session_directory,
+            history_file=f"{container_session_directory}/{config.HISTORY_FILE_NAME}",
         )
         conversation.append_text_message(system_message, message_type="system")
         return conversation
 
     @classmethod
-    def resume(cls, history_path, container_id):
-        """Rebuild the model input from a history file and keep appending to that file.
+    def resume(cls, session_directory, container_id):
+        """Rebuild the model input from a session's history file and keep appending to that file.
 
         The model input is the system message plus everything after the last
         compaction_summary record (or after the system message if there is none),
         exactly what it held when the session ended.
         """
-        conversation = cls(history_path)
-        records = read_history(history_path)
+        conversation = cls(session_directory)
+        records = read_history(conversation.history_path)
         conversation.turn_number = max(record["metadata"]["turn_number"] for record in records)
 
         message_types = [record["metadata"]["message_type"] for record in records]
@@ -199,17 +201,20 @@ def read_history(history_path):
         return [json.loads(line) for line in history_file if line.strip()]
 
 
-def saved_workspace(history_path):
-    """Return the workspace folder recorded in a history file's session record."""
-    workspace_directory = Path(read_history(history_path)[0]["session"]["workspace_directory"])
+def saved_workspace(session_directory):
+    """Return the workspace folder recorded in a session's turn-zero session record."""
+    records = read_history(Path(session_directory) / config.HISTORY_FILE_NAME)
+    workspace_directory = Path(records[0]["session"]["workspace_directory"])
     if not workspace_directory.is_dir():
         raise ValueError(f"The session's workspace folder no longer exists: {workspace_directory}")
     return workspace_directory
 
 
 def list_saved_sessions():
-    """Return every resumable session, newest first: (path, first and last user message, turns, last active)."""
-    history_paths = sorted(config.HISTORY_DIRECTORY.glob("*.jsonl"), key=lambda path: path.stat().st_mtime, reverse=True)
+    """Return every resumable session, newest first: (folder, first and last user message, turns, last active)."""
+    history_paths = sorted(
+        config.SESSIONS_DIRECTORY.glob(f"*/{config.HISTORY_FILE_NAME}"), key=lambda path: path.stat().st_mtime, reverse=True,
+    )
     sessions = []
     for history_path in history_paths:
         records = read_history(history_path)
@@ -228,5 +233,5 @@ def list_saved_sessions():
             continue
         last_turn = max(record["metadata"]["turn_number"] for record in records)
         last_active = datetime.fromtimestamp(history_path.stat().st_mtime)
-        sessions.append((history_path, user_messages[0], user_messages[-1], last_turn, last_active))
+        sessions.append((history_path.parent, user_messages[0], user_messages[-1], last_turn, last_active))
     return sessions

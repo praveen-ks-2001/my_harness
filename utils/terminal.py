@@ -167,7 +167,7 @@ def change_classifier_mode(tool_classifier, user_message):
     print_classifier_mode(tool_classifier)
 
 def choose_session():
-    """Offer a new session or a saved one, 10 per page (arrow keys, Enter); return its path, or None for new."""
+    """Offer a new session or a saved one, 10 per page (arrow keys, Enter); return its folder, or None for new."""
     sessions = list_saved_sessions()
     if not sessions:
         return None
@@ -182,9 +182,9 @@ def choose_session():
             f"  {'Last active':<12}  {'Turns':>5}  {'First message':<32}  Last message"
         )
         options = [("new", "New session")]
-        for history_path, first_message, last_message, last_turn, last_active in page_sessions:
+        for session_directory, first_message, last_message, last_turn, last_active in page_sessions:
             options.append((
-                history_path,
+                session_directory,
                 f"{last_active:%d %b %H:%M}  {last_turn:>5}  {one_line(first_message, 32):<32}  {one_line(last_message, 32)}",
             ))
         if page > 0:
