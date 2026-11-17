@@ -304,7 +304,10 @@ and timing. Traces are sent from a background thread.
 session  main_agent_<timestamp>      trace_session: the whole run, named after its session folder
 └─ turn 1                            trace_turn: one trace per user turn (input and final answer)
    ├─ Response                       model call, traced automatically
-   ├─ current_time                   trace_tool: tool name, arguments, result
+   ├─ run_command                    trace_tool: one span per tool call (arguments, result or rejection)
+   │  └─ classify run_command        trace_tool_decision: the classifier's decision
+   │     └─ Response                 the classifier's model call (auto mode)
+   ├─ create_tasks                   task tools: a tool span with no classify span
    ├─ compaction                     trace_compaction: trigger and token estimates
    │  └─ Response                    the summary call
    └─ Response
@@ -352,8 +355,9 @@ Not run: this tool call was rejected by the classifier. Reason: deletes files ou
 
 The history file records the decision in that tool result's metadata, for example
 `"decision": {"allowed": false, "decided_by": "user", "reason": "use git clean instead"}`.
-In Phoenix, each decision is a `GUARDRAIL` span named `classify <tool>`, and the
-classifier's model call nests inside it. Task tools skip the classifier (see Tasks).
+In Phoenix, each decision is a `GUARDRAIL` span named `classify <tool>` inside that call's
+tool span, and the classifier's model call nests inside it. A rejected call still gets a
+tool span, whose output is the rejection message. Task tools skip the classifier (see Tasks).
 
 ## Tasks
 

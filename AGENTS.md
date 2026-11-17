@@ -82,7 +82,8 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 Current tools: `read_file`, `write_file`, `edit_file`, `run_command`, and `current_time`
 (Docker), plus `create_tasks`, `update_task`, and `read_tasks` (host).
 Tracing: one Phoenix session per run (`session.id` = session folder name), one trace per
-user turn. Tool and compaction spans are marked OK or error; a tool result of
+user turn. Each tool call is one tool span, with its `classify <tool>` guardrail span
+nested inside. Tool and compaction spans are marked OK or error; a tool result of
 `{"error": ...}` counts as failed, while a nonzero `run_command` exit does not.
 Subagents remain future work;
 their mention is not authorization to implement them. Verification preferences,

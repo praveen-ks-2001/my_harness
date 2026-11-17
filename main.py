@@ -78,29 +78,28 @@ def run_loop(client, conversation, sandbox, tool_classifier, task_list):
 
         for item in function_calls:
             print_tool_call(item.name, item.arguments)
-
-            # Decide whether the call runs; task tools only store data in the harness, so they skip the classifier.
             is_task_tool = item.name in task_list.TOOL_NAMES
-            if is_task_tool:
-                decision = Decision(allowed=True, decided_by="harness")
-            else:
-                with trace_tool_decision(item.name, item.arguments, tool_classifier.mode) as decision_span:
-                    decision = tool_classifier.decide(item, response, conversation)
-                    record_decision(decision_span, decision)
 
-            # Run it in the harness or in Docker, and give the model its result.
-            if decision.allowed:
-                with trace_tool(item.name, item.arguments) as tool_span:
-                    if is_task_tool:
-                        result = task_list.call_tool(item.name, item.arguments)
-                    else:
-                        result = sandbox.call_tool(item.name, item.arguments)
-                    record_tool_result(tool_span, result=result)
-                print_tool_result(result)
-            else:
-                # The model gets the rejection, and its reason, as this call's result.
-                result = rejection_message(decision)
-                print_notice("REJECTED", result)
+            # One tool span per call, with the classifier's span nested inside it.
+            with trace_tool(item.name, item.arguments) as tool_span:
+                # Decide whether the call runs; task tools only store data in the harness, so they skip the classifier.
+                if is_task_tool:
+                    decision = Decision(allowed=True, decided_by="harness")
+                else:
+                    with trace_tool_decision(item.name, item.arguments, tool_classifier.mode) as decision_span:
+                        decision = tool_classifier.decide(item, response, conversation)
+                        record_decision(decision_span, decision)
+
+                # Run it in the harness or in Docker; a rejected call gets the rejection, and its reason, as its result.
+                if decision.allowed:
+                    run_tool = task_list.call_tool if is_task_tool else sandbox.call_tool
+                    result = run_tool(item.name, item.arguments)
+                    print_tool_result(result)
+                else:
+                    result = rejection_message(decision)
+                    print_notice("REJECTED", result)
+                record_tool_result(tool_span, result=result)
+
             conversation.append_tool_result(item.call_id, result, decision=decision)
 
     print_notice("INFO", f"Stopped after {config.MAX_MODEL_CALLS_PER_TURN} model calls in this turn.")
