@@ -34,13 +34,13 @@ from utils.terminal import (
 )
 
 
-def compact(client, conversation, trigger):
+def compact(client, conversation, task_list, trigger):
     """Compact the conversation and report the result; return False if it failed."""
     tokens_before = conversation.estimated_input_tokens()
     print_notice("COMPACTION", f"Summarizing about {tokens_before:,} tokens ({trigger})...")
     with trace_compaction(trigger, tokens_before) as compaction_span:
         try:
-            compact_conversation(client, conversation, trigger)
+            compact_conversation(client, conversation, task_list, trigger=trigger)
         except (OpenAIError, RuntimeError) as error:
             print_notice("ERROR", f"Compaction failed: {error}\nType continue to retry, or /compact.")
             compaction_span.set_output(value=f"Failed: {error}")
@@ -58,7 +58,7 @@ def run_loop(client, conversation, sandbox, tool_classifier, task_list):
     for _ in range(config.MAX_MODEL_CALLS_PER_TURN):
         # Compact first if the next call's input would be too large.
         if needs_compaction(conversation):
-            compacted = compact(client, conversation, "auto")
+            compacted = compact(client, conversation, task_list, trigger="auto")
             if not compacted:
                 return
 
@@ -107,6 +107,36 @@ def run_loop(client, conversation, sandbox, tool_classifier, task_list):
     return None
 
 
+def user_input_loop(client, conversation, sandbox, tool_classifier, task_list):
+    """Read user input until quit: handle commands, and run a model turn for anything else."""
+    while True:
+        try:
+            user_message = read_user_message()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+
+        # Commands are handled here and never reach the model.
+        if user_message in {"quit", "exit"}:
+            return
+        if not user_message:
+            continue
+        if user_message == "/compact":
+            compact(client, conversation, task_list, trigger="manual")
+            continue
+        if user_message.startswith("/tool-classifier"):
+            change_classifier_mode(tool_classifier, user_message)
+            continue
+
+        # Anything else starts a user turn: run the model until it answers.
+        conversation.append_text_message(user_message, message_type="user")
+        with trace_turn(conversation.turn_number, user_message) as turn_span:
+            final_answer = run_loop(client, conversation, sandbox, tool_classifier, task_list)
+            # No answer when the call limit is hit or compaction fails.
+            if final_answer:
+                turn_span.set_output(value=final_answer)
+
+
 def start_agent():
     start_tracing()
 
@@ -133,32 +163,7 @@ def start_agent():
 
             # One Phoenix session per run, named after its session folder.
             with trace_session(conversation.session_directory.name):
-                while True:
-                    try:
-                        user_message = read_user_message()
-                    except (EOFError, KeyboardInterrupt):
-                        print()
-                        break
-
-                    # Commands are handled here and never reach the model.
-                    if user_message in {"quit", "exit"}:
-                        break
-                    if not user_message:
-                        continue
-                    if user_message == "/compact":
-                        compact(client, conversation, "manual")
-                        continue
-                    if user_message.startswith("/tool-classifier"):
-                        change_classifier_mode(tool_classifier, user_message)
-                        continue
-
-                    # Anything else starts a user turn: run the model until it answers.
-                    conversation.append_text_message(user_message, message_type="user")
-                    with trace_turn(conversation.turn_number, user_message) as turn_span:
-                        final_answer = run_loop(client, conversation, sandbox, tool_classifier, task_list)
-                        # No answer when the call limit is hit or compaction fails.
-                        if final_answer:
-                            turn_span.set_output(value=final_answer)
+                user_input_loop(client, conversation, sandbox, tool_classifier, task_list)
 
 
 if __name__ == "__main__":

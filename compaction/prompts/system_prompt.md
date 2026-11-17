@@ -5,6 +5,10 @@ after your summary, so don't copy them; describe the whole picture.
 The input contains the agent's system message and the conversation in XML. A <user>
 item may itself contain an earlier compaction summary; fold its content into yours.
 
+The input also contains the agent's task list, kept by the harness. It is attached
+after your summary exactly as it is, so don't copy it. Keep your summary consistent
+with it, and refer to tasks by id where that helps.
+
 Write the summary with these sections:
 
 1. Primary Request and Intent: every request the user made, and what they ultimately want.

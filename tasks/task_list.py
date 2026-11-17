@@ -111,6 +111,10 @@ class TaskList:
             return {"tasks": self.tasks}
         return {"task": self._find(task_id)}
 
+    def render(self):
+        """Return the whole list as JSON text, for prompts such as the compaction continuation message."""
+        return json.dumps(self.tasks, indent=2, ensure_ascii=False) if self.tasks else "(no tasks)"
+
     def _find(self, task_id):
         for task in self.tasks:
             if task["id"] == task_id:

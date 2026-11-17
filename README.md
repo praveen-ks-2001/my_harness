@@ -115,9 +115,11 @@ tools/                    tool package that runs inside Docker
 utils/terminal.py         terminal input (prompt_toolkit) and output (Rich)
 ```
 
-- `main.py`: `start_agent()` reads user input; `run_loop()` calls the model until it
-  stops requesting tools, or until `MAX_MODEL_CALLS_PER_TURN` calls have been made in
-  that turn. It then prints an `[INFO]` notice and waits for the next user input.
+- `main.py`: `start_agent()` sets up the session (session choice, sandbox,
+  conversation, task list); `user_input_loop()` reads user input and handles commands;
+  `run_loop()` calls the model until it stops requesting tools, or until
+  `MAX_MODEL_CALLS_PER_TURN` calls have been made in that turn. It then prints an
+  `[INFO]` notice and waits for the next user input.
 - `config.py`: sessions folder, prompt paths, OpenAI model name, model-call
   limit per turn, compaction threshold, workspace paths, sandbox image/network
   settings, and tool timeout, grouped by purpose. Project paths are relative to the
@@ -243,12 +245,16 @@ default, in `config.py`), or when you type `/compact`, the conversation is compa
 1. The conversation is split into units. A unit is one user message and everything the
    model did in reply (reasoning, tool calls, tool results, answers) until the next one.
 2. The summarizer gets `compaction/prompts/system_prompt.md` as its system message and,
-   as its user message, `compaction/prompts/input_template.md` filled with the original system message
-   and every unit as XML (`<user>`, `<assistant>`, `<function_call>`, `<tool_result>`).
-   Encrypted reasoning is left out.
+   as its user message, `compaction/prompts/input_template.md` filled with the original system message,
+   every unit as XML (`<user>`, `<assistant>`, `<function_call>`, `<tool_result>`), and
+   the task list. Encrypted reasoning is left out.
 3. `model_input` becomes the original system message plus one user message,
-   `compaction/prompts/continuation_template.md` filled with the summary and the last two units
-   verbatim. The loop then carries on, even in the middle of a turn.
+   `compaction/prompts/continuation_template.md` filled with the summary, the last two units
+   verbatim, and a `<task_list>` block. The loop then carries on, even in the middle of a turn.
+
+The task list block is `TaskList.render()`: the harness's own copy as JSON, written by
+code rather than by the summarizer, so it is exact after any number of compactions.
+The summarizer is told not to copy it, only to stay consistent with it.
 
 A later compaction summarizes that continuation message along with everything after it.
 With two or fewer units there is nothing to shrink, so compaction refuses. If compaction
@@ -378,7 +384,8 @@ docstrings, through the same `build_schema()` as the Docker tools, and
 `stream_model()` sends them alongside the Docker tools' schemas. Task tool calls skip
 the classifier, since they cannot touch files or the network; their history metadata
 records `"decided_by": "harness"`. They still get a tool span in Phoenix. A resumed
-session reloads its `tasks.json`.
+session reloads its `tasks.json`, and each compaction puts the current list into the
+continuation message (see Compaction).
 
 ## Resuming a session
 

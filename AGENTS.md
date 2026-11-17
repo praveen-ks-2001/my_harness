@@ -15,7 +15,7 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 
 | Location | Responsibility |
 | --- | --- |
-| [main.py](main.py) | Startup, the user-input loop, and the model/tool loop. |
+| [main.py](main.py) | `start_agent()` (startup), `user_input_loop()` (input and commands), and `run_loop()` (the model/tool loop). |
 | [utils/terminal.py](utils/terminal.py) | All terminal I/O: prompt_toolkit input (history, Tab completion, paste) and Rich output (colored labels, Markdown answers, JSON tool calls). |
 | [agent/model.py](agent/model.py) | Streamed OpenAI Responses API call. |
 | [agent/conversation.py](agent/conversation.py) | API input items, turn numbering, and JSONL history. `Conversation.start()` creates a session; `Conversation.resume()` rebuilds one from its folder's history file. |
@@ -67,7 +67,7 @@ each feature keeps its prompts in its own `prompts/` subfolder.
   `input_tokens + output_tokens` plus characters/4 of items added since. Above
   `CONTEXT_WINDOW_TOKENS * COMPACT_AT_FRACTION`, or on `/compact`, `model_input` becomes
   the system message plus one user-role continuation message (summary + last two units
-  verbatim). A unit is one user message and everything until the next one. The history
+  verbatim + `<task_list>` from `TaskList.render()`, rendered by code, never by the summarizer). A unit is one user message and everything until the next one. The history
   gets a `compaction_summary` record, then that message as a normal `user` record that
   keeps the current turn number; only real user input advances the turn. Rebuilding from history means: system message plus
   everything after the last `compaction_summary` record.
