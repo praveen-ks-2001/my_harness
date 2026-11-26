@@ -7,13 +7,13 @@ from tools.registry import tool
 
 
 @tool
-def run_command(command: str) -> dict:
+def bash(command: str) -> dict:
     """Run a Bash command in the workspace.
 
-    Use for listing/searching files, scripts, package installation, tests, and Git.
-    Returns stdout, stderr, exit_code, and timed_out. Each call starts in the workspace;
-    cd does not persist between calls. Very long output is shortened, with the full text
-    saved to a file; narrow it with rg, head, or wc when you can.
+    Use for searching, slicing, and parsing files, scripts, package installation, tests,
+    and Git. Returns stdout, stderr, exit_code, and timed_out. Each call starts in the
+    workspace; cd does not persist between calls. Very long output is cut, with the full
+    text saved to a file; narrow it with rg, sed, head, or wc when you can.
 
     Args:
         command: Bash command to run.

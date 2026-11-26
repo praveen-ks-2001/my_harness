@@ -54,10 +54,17 @@ class Conversation:
 
         container_session_directory = f"{config.CONTAINER_SESSIONS_DIRECTORY}/{conversation.session_directory.name}"
         system_message = config.SYSTEM_MESSAGE_FILE.read_text(encoding="utf-8").format(
+            max_model_calls_per_turn=config.MAX_MODEL_CALLS_PER_TURN,
+            workspace_directory=config.CONTAINER_WORKSPACE_DIRECTORY,
             sessions_directory=config.CONTAINER_SESSIONS_DIRECTORY,
             session_directory=container_session_directory,
             history_file=f"{container_session_directory}/{config.HISTORY_FILE_NAME}",
             tasks_file=f"{container_session_directory}/{config.TASKS_FILE_NAME}",
+            # Output limits, so the model can plan its tool calls around them.
+            tool_output_max_chars=config.TOOL_OUTPUT_MAX_CHARS,
+            tool_output_head_chars=config.TOOL_OUTPUT_HEAD_CHARS,
+            tool_output_tail_chars=config.TOOL_OUTPUT_TAIL_CHARS,
+            read_file_max_chars=config.READ_FILE_MAX_CHARS,
         )
         conversation.append_text_message(system_message, message_type="system")
         return conversation

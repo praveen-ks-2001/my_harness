@@ -51,7 +51,7 @@ credentials, chat history, and the rest of the harness are not copied into it.
 | `read_file(path, start_line=1, end_line=None)` | Read UTF-8 text with one-based line numbers, from the workspace or read-only `/sessions`, at most `READ_FILE_MAX_CHARS` per call; see Large tool outputs below. |
 | `write_file(path, content, overwrite=False)` | Write a UTF-8 file and missing parent folders; replace an existing file only when `overwrite` is true. |
 | `edit_file(path, old_text, new_text)` | Replace an exact, nonempty text match that occurs only once. |
-| `run_command(command)` | Run Bash from the workspace and return stdout, stderr, exit code, and timeout status. |
+| `bash(command)` | Run Bash from the workspace and return stdout, stderr, exit code, and timeout status. |
 | `current_time(timezone="UTC")` | Return the current time in an IANA timezone. |
 | `create_tasks(tasks)`, `update_task(task_id, status, result=None)`, `read_tasks(task_id=None)` | Host tools for the session's task list; see Tasks below. |
 
@@ -81,7 +81,7 @@ resolve paths and refuse traversal or symlinks that lead outside the workspace;
 `read_file` may also read `/sessions`, which is mounted read-only.
 `edit_file` preserves existing line endings and refuses missing or ambiguous matches.
 
-`run_command` supports shell syntax, scripts, searches (`rg`), Git, and package installation.
+`bash` supports shell syntax, scripts, searches (`rg`), Git, and package installation.
 Every call starts in the workspace; a `cd` does not persist into the next call.
 Nonzero exits are returned to the model as command results rather than hidden:
 
@@ -131,8 +131,11 @@ utils/terminal.py         terminal input (prompt_toolkit) and output (Rich)
 - `agent/conversation.py`: `Conversation` owns the message list, turn number, session
   folder, and history file path. Its methods build message dictionaries and record them in context and JSONL.
 - `agent/prompts/system_message.md`: system instructions, read by `Conversation.start()`,
-  which fills in `{sessions_directory}`, `{session_directory}`, and `{history_file}`
-  with the container paths.
+  which fills in the container paths (`{workspace_directory}`, `{sessions_directory}`,
+  `{session_directory}`, `{history_file}`, `{tasks_file}`), `{max_model_calls_per_turn}`,
+  and the output limits from `config.py`, so the model can plan its tool calls around them.
+  Its sections: Harness, Workspace, Tools (one line per tool on when to use it), Tasks,
+  Large outputs, Session files, Context management, and Session context.
   A resumed session reuses the system message saved in its file.
 - `compaction/compact.py`: `needs_compaction()` and `compact_conversation()`, which also
   makes the tool-free summary call; `compaction/prompts/` holds its system prompt and
@@ -249,14 +252,14 @@ and last `TOOL_OUTPUT_TAIL_CHARS` (1,000) characters around a marker:
 
 ```text
 [… output truncated: 183,402 characters, 4,120 lines in total. Full output:
-/sessions/<session>/tool_outputs/call_x.stdout.txt. Read it in pages with read_file, or search it with rg.]
+/sessions/<session>/tool_outputs/call_x.stdout.txt. Slice or search it with bash; see Large outputs.]
 ```
 
-In a JSON result such as `run_command`'s, each long string field (`stdout`, `stderr`) is
+In a JSON result such as `bash`'s, each long string field (`stdout`, `stderr`) is
 capped on its own and saved as `<call_id>.<field>.txt`, so the result stays valid JSON.
 The terminal, Phoenix, and the history show the capped result, and the history metadata
 lists the saved files as `offloaded_to`. Only the harness writes these files; the
-container sees them read-only. A `cat` of a big file through `run_command` is simply
+container sees them read-only. A `cat` of a big file through `bash` is simply
 capped again.
 
 **Paged reads.** `read_file` returns at most `READ_FILE_MAX_CHARS` (8,000) characters per call,
@@ -267,12 +270,14 @@ the last whole line that fits:
 ```text
 [notes.txt: 183,402 characters, 4,120 lines. Showing lines 1-212.]
 1: …
-[Stopped at line 212: the 8,000-character limit was reached. To continue: read_file(path="notes.txt", start_line=213)]
+[Stopped at line 212: the 8,000-character limit was reached. To continue: read_file(path="notes.txt", start_line=213), or search it with bash.]
 ```
 
 Other footers are `[End of file]` and `[N more lines after line M.]`. A single line longer
 than the limit is cut, with a `sed … | cut -c…` command for reading the rest through
-`run_command`. The system message and the tool descriptions explain the same paging.
+`bash`. The markers only hint; the full instructions (check the size, search, take line
+ranges or character slices, parse structured data with `jq` or Python) are in the system
+message's Large outputs section, which states the limits from `config.py`.
 
 ## Compaction
 
@@ -343,8 +348,8 @@ and timing. Traces are sent from a background thread.
 session  main_agent_<timestamp>      trace_session: the whole run, named after its session folder
 └─ turn 1                            trace_turn: one trace per user turn (input and final answer)
    ├─ Response                       model call, traced automatically
-   ├─ run_command                    trace_tool: one span per tool call (arguments, result or rejection)
-   │  └─ classify run_command        trace_tool_decision: the classifier's decision
+   ├─ bash                           trace_tool: one span per tool call (arguments, result or rejection)
+   │  └─ classify bash               trace_tool_decision: the classifier's decision
    │     └─ Response                 the classifier's model call (auto mode)
    ├─ create_tasks                   task tools: a tool span with no classify span
    ├─ compaction                     trace_compaction: trigger and token estimates
@@ -359,7 +364,7 @@ conversation works normally, but quitting waits about ten seconds while export r
 set `TRACING_ENABLED = False` in `config.py` to turn tracing off; the `with` blocks then
 do nothing. Tool and compaction spans show OK (✓) or error (red, with the reason).
 A tool counts as failed when its result is `{"error": ...}`, such as a refused path or
-a Docker failure; a `run_command` with a nonzero exit code is a normal result, since the
+a Docker failure; a `bash` call with a nonzero exit code is a normal result, since the
 tool itself worked. Turn spans have no status unless an exception occurs.
 
 ## Tool-call classifier

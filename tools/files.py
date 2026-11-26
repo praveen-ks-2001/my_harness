@@ -56,13 +56,13 @@ def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> st
         shown.append(numbered_line)
         used_chars += len(numbered_line) + 1
 
-    # A single line longer than the limit is cut; the rest is reachable with run_command.
+    # A single line longer than the limit is cut; the rest is reachable with bash.
     if not shown:
         line = lines[start_line - 1]
         kept_chars = max_chars - len(f"{start_line}: ")
         shown.append(
-            f"{start_line}: {line[:kept_chars]} …[line cut: it has {len(line):,} characters. Read the rest with "
-            f"run_command, e.g. sed -n '{start_line}p' {path} | cut -c{kept_chars + 1}-{kept_chars + max_chars}]"
+            f"{start_line}: {line[:kept_chars]} …[line cut: it has {len(line):,} characters. Slice the rest with bash, "
+            f"e.g. sed -n '{start_line}p' {path} | cut -c{kept_chars + 1}-{kept_chars + max_chars}; see Large outputs.]"
         )
     last_shown = start_line + len(shown) - 1
 
@@ -73,7 +73,8 @@ def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> st
         end_argument = f", end_line={end_line}" if end_line is not None else ""
         footer = (
             f"[Stopped at line {last_shown}: the {max_chars:,}-character limit was reached. "
-            f'To continue: read_file(path="{path}", start_line={last_shown + 1}{end_argument})]'
+            f'To continue: read_file(path="{path}", start_line={last_shown + 1}{end_argument}), '
+            f"or search it with bash.]"
         )
     else:
         footer = f"[{len(lines) - last_shown:,} more lines after line {last_shown}.]"

@@ -19,7 +19,7 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 | [utils/terminal.py](utils/terminal.py) | All terminal I/O: prompt_toolkit input (history, Tab completion, paste) and Rich output (colored labels, Markdown answers, JSON tool calls). |
 | [agent/model.py](agent/model.py) | Streamed OpenAI Responses API call. |
 | [agent/conversation.py](agent/conversation.py) | API input items, turn numbering, and JSONL history. `Conversation.start()` creates a session; `Conversation.resume()` rebuilds one from its folder's history file. |
-| [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions; `{sessions_directory}`, `{session_directory}`, `{history_file}`, and `{tasks_file}` are filled in by `Conversation.start()`. |
+| [agent/prompts/system_message.md](agent/prompts/system_message.md) | The agent's system instructions, in sections: Harness, Workspace, Tools (one line per tool on when to use it), Tasks, Large outputs, Session files, Context management, Session context. `Conversation.start()` fills in the container paths (`{workspace_directory}`, `{sessions_directory}`, `{session_directory}`, `{history_file}`, `{tasks_file}`), `{max_model_calls_per_turn}`, and the output limits (`{tool_output_max_chars}`, `{tool_output_head_chars}`, `{tool_output_tail_chars}`, `{read_file_max_chars}`) from `config.py`. A new tool needs its line in the Tools section. |
 | [compaction/compact.py](compaction/compact.py) | When to compact, the summary call, splitting `model_input` into units, and rendering items as XML. |
 | [compaction/prompts/](compaction/prompts/) | The summarizer's system prompt, its input template, and the continuation template. |
 | [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
@@ -50,7 +50,8 @@ each feature keeps its prompts in its own `prompts/` subfolder.
   the model sees the first 2,000 and last 1,000 characters plus a marker with the saved file's path (JSON
   fields such as `stdout` are capped separately); history metadata records `offloaded_to`. `read_file`
   pages at `READ_FILE_MAX_CHARS` (8,000, passed to the container as an env var), with a size header and a
-  `start_line` footer; a single line over the limit is cut with a `sed | cut` hint.
+  `start_line` footer; a single line over the limit is cut with a `sed | cut` hint. Markers and footers only
+  hint ("slice or search it with bash; see Large outputs"); the full instructions live in the system message.
 - Tool schemas come from type hints and Google-style docstrings; every argument needs
   an `Args:` entry or startup fails. The host only builds schemas; tool functions run
   in Docker, so tool dependencies must also be installed in the Dockerfile.
@@ -85,12 +86,12 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 - Tools have outbound network access. Install dependencies in the workspace, since
   the container root is read-only. There is no host-execution fallback.
 
-Current tools: `read_file`, `write_file`, `edit_file`, `run_command`, and `current_time`
+Current tools: `read_file`, `write_file`, `edit_file`, `bash`, and `current_time`
 (Docker), plus `create_tasks`, `update_task`, and `read_tasks` (host).
 Tracing: one Phoenix session per run (`session.id` = session folder name), one trace per
 user turn. Each tool call is one tool span, with its `classify <tool>` guardrail span
 nested inside. Tool and compaction spans are marked OK or error; a tool result of
-`{"error": ...}` counts as failed, while a nonzero `run_command` exit does not.
+`{"error": ...}` counts as failed, while a nonzero `bash` exit does not.
 Subagents remain future work;
 their mention is not authorization to implement them. Verification preferences,
 commit-message conventions, and the rule to keep this file and the README current

@@ -7,7 +7,7 @@ def cap_tool_output(result, call_id, session_directory):
     """Return the tool result as the model should see it, and the container paths of any saved full text.
 
     Text longer than TOOL_OUTPUT_MAX_CHARS keeps only its head and tail; the full text is saved
-    in the session's tool_outputs/ folder. In a JSON object, such as run_command's result, each
+    in the session's tool_outputs/ folder. In a JSON object, such as bash's result, each
     long string field (stdout, stderr) is capped on its own, so the result stays valid JSON.
     """
     try:
@@ -40,8 +40,9 @@ def _cap_text(text, file_name, session_directory):
     container_path = (
         f"{config.CONTAINER_SESSIONS_DIRECTORY}/{session_directory.name}/{config.TOOL_OUTPUTS_DIRECTORY_NAME}/{file_name}"
     )
+    # A short hint only; the system message's Large outputs section has the full instructions.
     marker = (
         f"\n[… output truncated: {len(text):,} characters, {len(text.splitlines()):,} lines in total. "
-        f"Full output: {container_path}. Read it in pages with read_file, or search it with rg.]\n"
+        f"Full output: {container_path}. Slice or search it with bash; see Large outputs.]\n"
     )
     return text[:config.TOOL_OUTPUT_HEAD_CHARS] + marker + text[-config.TOOL_OUTPUT_TAIL_CHARS:], container_path
