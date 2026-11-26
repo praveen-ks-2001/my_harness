@@ -8,7 +8,7 @@ host; tools run inside Docker against a chosen workspace.
 Before planning or changing code, read the user's
 [coding preferences](.instructions/coding-preferences.md). Current user instructions
 take precedence. Keep changes small and discuss additional architecture before adding it.
-Code is grouped by feature folder (`agent/`, `compaction/`, `observability/`, `sandbox/`, `tool_classifier/`, `tools/`), and
+Code is grouped by feature folder (`agent/`, `compaction/`, `observability/`, `offload/`, `sandbox/`, `tasks/`, `tool_classifier/`, `tools/`), and
 each feature keeps its prompts in its own `prompts/` subfolder.
 
 ## Where to look
@@ -24,6 +24,7 @@ each feature keeps its prompts in its own `prompts/` subfolder.
 | [compaction/prompts/](compaction/prompts/) | The summarizer's system prompt, its input template, and the continuation template. |
 | [tools/](tools/) | Tool modules registered with `@tool`, listed in [tools/\_\_init\_\_.py](tools/__init__.py). [registry.py](tools/registry.py) builds schemas and validates calls; [runner.py](tools/runner.py) is the container entry point. |
 | [tasks/task_list.py](tasks/task_list.py) | `TaskList`: the session's task list in `tasks.json` and its host tools `create_tasks`, `update_task`, `read_tasks` (`TOOL_NAMES`), with schemas from `build_schema()`. |
+| [offload/offload.py](offload/offload.py) | `cap_tool_output()`: a result over `TOOL_OUTPUT_MAX_CHARS` is saved to `sessions/<id>/tool_outputs/` and replaced by its head, a marker, and its tail. |
 | [tool_classifier/](tool_classifier/) | Decides before each tool call whether it runs: `ToolClassifier.decide()` returns a `Decision(allowed, decided_by, reason)`. Modes `auto` (LLM, `_classify_with_llm`), `allow_all`, `manual`; helpers in `utils.py`, prompts in `prompts/`. |
 | [observability/tracing.py](observability/tracing.py) | `start_tracing()` (OpenAI calls auto-traced to local Phoenix) and the `trace_session`/`trace_turn`/`trace_tool`/`trace_compaction` blocks used in `main.py`. |
 | [sandbox/sandbox.py](sandbox/sandbox.py) | Docker lifecycle, command execution, and `Sandbox.call_tool()`. |
@@ -43,8 +44,13 @@ each feature keeps its prompts in its own `prompts/` subfolder.
   sessions. The default workspace is a reusable local `workspace/`; harness code and
   credentials stay outside, and a workspace containing the harness or sessions is refused.
 - Each run gets a session folder `sessions/main_agent_YYYYMMDD_HHMMSS_ffffff/` holding
-  `history.jsonl` and, once tasks exist, `tasks.json`; the folder name identifies the session. The file tools only reach
-  `/workspace`, so the model reads history with `run_command` (`rg`, `jq`, `sed`).
+  `history.jsonl`, once tasks exist `tasks.json`, and capped outputs in `tool_outputs/`; the folder name
+  identifies the session. `write_file`/`edit_file` only reach `/workspace`; `read_file` also reads `/sessions`.
+- Every tool result passes through `cap_tool_output()` in `run_loop`: over `TOOL_OUTPUT_MAX_CHARS` (10,000)
+  the model sees the first 2,000 and last 1,000 characters plus a marker with the saved file's path (JSON
+  fields such as `stdout` are capped separately); history metadata records `offloaded_to`. `read_file`
+  pages at `READ_FILE_MAX_CHARS` (8,000, passed to the container as an env var), with a size header and a
+  `start_line` footer; a single line over the limit is cut with a `sed | cut` hint.
 - Tool schemas come from type hints and Google-style docstrings; every argument needs
   an `Args:` entry or startup fails. The host only builds schemas; tool functions run
   in Docker, so tool dependencies must also be installed in the Dockerfile.

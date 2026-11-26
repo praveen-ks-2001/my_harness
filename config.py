@@ -37,6 +37,14 @@ SESSIONS_DIRECTORY = PROJECT_DIRECTORY / "sessions"
 CONTAINER_SESSIONS_DIRECTORY = "/sessions"
 HISTORY_FILE_NAME = "history.jsonl"
 TASKS_FILE_NAME = "tasks.json"
+TOOL_OUTPUTS_DIRECTORY_NAME = "tool_outputs"
+
+# Tool output limits: a longer result is saved in the session's tool_outputs/ folder and the model sees its head and tail.
+TOOL_OUTPUT_MAX_CHARS = 10_000
+TOOL_OUTPUT_HEAD_CHARS = 2_000
+TOOL_OUTPUT_TAIL_CHARS = 1_000
+# Largest page read_file returns; below TOOL_OUTPUT_MAX_CHARS, so a page is never offloaded.
+READ_FILE_MAX_CHARS = 8_000
 
 # Workspace locations.
 DEFAULT_WORKSPACE_DIRECTORY = PROJECT_DIRECTORY / "workspace"

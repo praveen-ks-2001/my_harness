@@ -28,9 +28,16 @@ Each history line is one JSON record: `metadata` (timestamp, turn_number,
 message_type) and `message` (the item). Reasoning items hold unreadable encrypted
 content; skip them.
 
-These files can be large. Before reading one, check its size (`wc -l`, `ls -lh`).
-Find what you need with `rg` across files, and extract text with `jq`, for example:
+These files can be large. Find what you need with `rg` across files, and extract text
+with `jq`, for example:
 `jq -r 'select(.metadata.message_type=="user") | .message.content' FILE`.
-The file tools only reach the workspace, so use `run_command` for history files.
-Never read a whole history file at once; read only the line ranges you need, for
-example with `sed -n '10,40p' FILE`.
+read_file can read them in pages; write_file and edit_file only reach the workspace.
+
+## Large outputs
+
+A long tool result is shortened: you see its start and end, and a marker gives the
+path of the full text, saved in your session folder's `tool_outputs/`. read_file
+returns a limited number of characters per call; its header gives the file's size, and
+its footer gives the `start_line` to continue from. To find something in a large file,
+search it with `rg`, or print a line range with `sed -n '120,200p' FILE`, through
+`run_command`, instead of reading it all.

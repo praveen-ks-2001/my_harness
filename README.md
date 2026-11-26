@@ -48,7 +48,7 @@ credentials, chat history, and the rest of the harness are not copied into it.
 
 | Tool | Behavior |
 | --- | --- |
-| `read_file(path, start_line=1, end_line=None)` | Read UTF-8 text with one-based line numbers; optional bounds are inclusive. |
+| `read_file(path, start_line=1, end_line=None)` | Read UTF-8 text with one-based line numbers, from the workspace or read-only `/sessions`, at most `READ_FILE_MAX_CHARS` per call; see Large tool outputs below. |
 | `write_file(path, content, overwrite=False)` | Write a UTF-8 file and missing parent folders; replace an existing file only when `overwrite` is true. |
 | `edit_file(path, old_text, new_text)` | Replace an exact, nonempty text match that occurs only once. |
 | `run_command(command)` | Run Bash from the workspace and return stdout, stderr, exit code, and timeout status. |
@@ -77,7 +77,8 @@ imports. The image sets `PYTHONPATH=/opt/harness` so the package is importable, 
 also makes it importable from workspace scripts.
 
 File paths are relative to the workspace, or absolute paths inside it. The file tools
-resolve paths and refuse traversal or symlinks that lead outside the workspace.
+resolve paths and refuse traversal or symlinks that lead outside the workspace;
+`read_file` may also read `/sessions`, which is mounted read-only.
 `edit_file` preserves existing line endings and refuses missing or ambiguous matches.
 
 `run_command` supports shell syntax, scripts, searches (`rg`), Git, and package installation.
@@ -109,6 +110,7 @@ agent/                    the main model: model.py, conversation.py, prompts/
 compaction/               compact.py, prompts/
 tool_classifier/          classifier.py, utils.py, prompts/
 tasks/                    task_list.py (the task list and its host tools)
+offload/                  offload.py (caps long tool outputs, saving the full text)
 observability/            tracing.py (Phoenix traces of model calls)
 sandbox/                  sandbox.py (Docker side of the host)
 tools/                    tool package that runs inside Docker
@@ -121,8 +123,8 @@ utils/terminal.py         terminal input (prompt_toolkit) and output (Rich)
   `MAX_MODEL_CALLS_PER_TURN` calls have been made in that turn. It then prints an
   `[INFO]` notice and waits for the next user input.
 - `config.py`: sessions folder, prompt paths, OpenAI model name, model-call
-  limit per turn, compaction threshold, workspace paths, sandbox image/network
-  settings, and tool timeout, grouped by purpose. Project paths are relative to the
+  limit per turn, compaction threshold, tool output limits, workspace paths, sandbox
+  image/network settings, and tool timeout, grouped by purpose. Project paths are relative to the
   project directory. The model name is read from `OPENAI_MODEL` in the environment;
   it can also be set directly in this file.
 - `agent/model.py`: `stream_model()` starts a streamed API request.
@@ -234,6 +236,43 @@ Summing `usage` across the file gives the session's token use.
 `conversation.model_input` contains only the original API items, without the file metadata.
 Items are saved immediately, and `call_id` links each tool result to its call.
 The sessions folder is gitignored. Existing logs keep their original format and metadata.
+
+## Large tool outputs
+
+Two limits in `config.py` keep any single tool result from flooding the context.
+
+**The output cap.** After every tool call, Docker or host, `run_loop()` passes the result
+through `cap_tool_output()` in `offload/offload.py`. A result up to `TOOL_OUTPUT_MAX_CHARS`
+(10,000) is unchanged. A longer one is saved in full to the session folder's
+`tool_outputs/<call_id>.txt`, and the model sees its first `TOOL_OUTPUT_HEAD_CHARS` (2,000)
+and last `TOOL_OUTPUT_TAIL_CHARS` (1,000) characters around a marker:
+
+```text
+[… output truncated: 183,402 characters, 4,120 lines in total. Full output:
+/sessions/<session>/tool_outputs/call_x.stdout.txt. Read it in pages with read_file, or search it with rg.]
+```
+
+In a JSON result such as `run_command`'s, each long string field (`stdout`, `stderr`) is
+capped on its own and saved as `<call_id>.<field>.txt`, so the result stays valid JSON.
+The terminal, Phoenix, and the history show the capped result, and the history metadata
+lists the saved files as `offloaded_to`. Only the harness writes these files; the
+container sees them read-only. A `cat` of a big file through `run_command` is simply
+capped again.
+
+**Paged reads.** `read_file` returns at most `READ_FILE_MAX_CHARS` (8,000) characters per call,
+passed to the container as an environment variable and kept below the cap so a page is
+never offloaded. Every read starts with the file's size and the lines shown, and stops at
+the last whole line that fits:
+
+```text
+[notes.txt: 183,402 characters, 4,120 lines. Showing lines 1-212.]
+1: …
+[Stopped at line 212: the 8,000-character limit was reached. To continue: read_file(path="notes.txt", start_line=213)]
+```
+
+Other footers are `[End of file]` and `[N more lines after line M.]`. A single line longer
+than the limit is cut, with a `sed … | cut -c…` command for reading the rest through
+`run_command`. The system message and the tool descriptions explain the same paging.
 
 ## Compaction
 

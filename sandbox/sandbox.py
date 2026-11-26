@@ -73,6 +73,8 @@ class Sandbox:
         return _run_docker(
             "exec", "--interactive",
             "--env", f"TOOL_TIMEOUT_SECONDS={config.TOOL_TIMEOUT_SECONDS}",
+            "--env", f"READ_FILE_MAX_CHARS={config.READ_FILE_MAX_CHARS}",
+            "--env", f"SESSIONS_DIRECTORY={config.CONTAINER_SESSIONS_DIRECTORY}",
             "--workdir", config.CONTAINER_WORKSPACE_DIRECTORY, self.container_id,
             # Allow the command runner time to save its partial output after a timeout.
             "timeout", "--kill-after=5", str(config.TOOL_TIMEOUT_SECONDS + 5), *command,

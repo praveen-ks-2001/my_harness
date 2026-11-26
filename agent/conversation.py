@@ -138,13 +138,18 @@ class Conversation:
             self.tokens_at_last_call = response.usage.input_tokens + response.usage.output_tokens
             self.characters_since_last_call = 0
 
-    def append_tool_result(self, call_id, output, decision=None):
+    def append_tool_result(self, call_id, output, decision=None, offloaded_to=None):
         """Build the result item linked to the model's function call.
 
-        The classifier's decision, if given, is saved in the history metadata only.
+        The classifier's decision and the files holding a capped output in full, if given, are
+        saved in the history metadata only.
         """
         api_item = {"type": "function_call_output", "call_id": call_id, "output": output}
-        extra_metadata = {"decision": asdict(decision)} if decision else None
+        extra_metadata = {}
+        if decision:
+            extra_metadata["decision"] = asdict(decision)
+        if offloaded_to:
+            extra_metadata["offloaded_to"] = offloaded_to
         self._record_item(api_item, "tool_result", extra_metadata)
 
     def recent_user_messages(self, count):

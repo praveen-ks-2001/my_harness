@@ -16,6 +16,7 @@ from observability.tracing import (
     trace_tool_decision,
     trace_turn,
 )
+from offload.offload import cap_tool_output
 from sandbox.sandbox import Sandbox
 from tasks.task_list import TaskList
 from tool_classifier.classifier import Decision, ToolClassifier
@@ -93,14 +94,17 @@ def run_loop(client, conversation, sandbox, tool_classifier, task_list):
                 # Run it in the harness or in Docker; a rejected call gets the rejection, and its reason, as its result.
                 if decision.allowed:
                     run_tool = task_list.call_tool if is_task_tool else sandbox.call_tool
-                    result = run_tool(item.name, item.arguments)
+                    # A long output is saved in the session folder; the model sees its head and tail.
+                    result, offloaded_to = cap_tool_output(
+                        run_tool(item.name, item.arguments), item.call_id, conversation.session_directory,
+                    )
                     print_tool_result(result)
                 else:
-                    result = rejection_message(decision)
+                    result, offloaded_to = rejection_message(decision), []
                     print_notice("REJECTED", result)
                 record_tool_result(tool_span, result=result)
 
-            conversation.append_tool_result(item.call_id, result, decision=decision)
+            conversation.append_tool_result(item.call_id, result, decision=decision, offloaded_to=offloaded_to)
 
     print_notice("INFO", f"Stopped after {config.MAX_MODEL_CALLS_PER_TURN} model calls in this turn.")
     return None
