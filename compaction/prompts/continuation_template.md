@@ -19,7 +19,10 @@ tool results above.
 {task_list}
 </task_list>
 
-Decide what to do next: if the work is unfinished, continue it with your tools, using
-the task list to see where you were; if you need the user's input, ask; if it is done,
-report the outcome to the user.
+Everything before this summary is still in your history file (see your instructions):
+search it with `rg` or `jq` when you need an exact detail that the summary leaves out.
+
+Don't recap this summary to the user. Decide what to do next: if the work is
+unfinished, continue it with your tools, using the task list to see where you were; if
+you need the user's input, ask; if it is done, report the outcome to the user.
 </compaction_summary>

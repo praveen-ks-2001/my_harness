@@ -291,10 +291,16 @@ default, in `config.py`), or when you type `/compact`, the conversation is compa
 2. The summarizer gets `compaction/prompts/system_prompt.md` as its system message and,
    as its user message, `compaction/prompts/input_template.md` filled with the original system message,
    every unit as XML (`<user>`, `<assistant>`, `<function_call>`, `<tool_result>`), and
-   the task list. Encrypted reasoning is left out.
+   the task list. Encrypted reasoning is left out. Its prompt is in sections: Input,
+   what is attached after the summary (so it isn't repeated), Rules (in order, specific,
+   nothing invented, only real user messages count as the user), the ten summary
+   sections (including the user's constraints, preferences, and corrections, quoted word
+   for word), Next step (only if unfinished, quoting the latest request), and Format.
 3. `model_input` becomes the original system message plus one user message,
    `compaction/prompts/continuation_template.md` filled with the summary, the last two units
-   verbatim, and a `<task_list>` block. The loop then carries on, even in the middle of a turn.
+   verbatim, and a `<task_list>` block. It ends by pointing the model to its history file
+   for exact details and telling it not to recap the summary. The loop then carries on,
+   even in the middle of a turn.
 
 The task list block is `TaskList.render()`: the harness's own copy as JSON, written by
 code rather than by the summarizer, so it is exact after any number of compactions.
