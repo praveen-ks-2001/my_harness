@@ -1,5 +1,6 @@
 import json
 from contextlib import contextmanager
+from dataclasses import asdict
 
 from openinference.instrumentation import OITracer, TraceConfig, using_session
 from openinference.instrumentation.openai import OpenAIInstrumentor
@@ -49,6 +50,7 @@ def trace_turn(turn_number, user_message):
 
 @contextmanager
 def trace_tool(name, arguments):
+    """One TOOL span per tool call; the classifier's span and model call nest inside it."""
     with tracer.start_as_current_span(name=name, openinference_span_kind="tool") as span:
         span.set_tool(name=name, parameters=arguments)
         span.set_input(value=arguments, mime_type="application/json")
@@ -62,6 +64,20 @@ def trace_compaction(trigger, tokens_before):
         span.set_attribute(key="trigger", value=trigger)
         yield span
 
+
+@contextmanager
+def trace_tool_decision(tool_name, arguments, mode):
+    """One GUARDRAIL span per tool call: whether the classifier, the user, or nobody allowed it."""
+    with tracer.start_as_current_span(name=f"classify {tool_name}", openinference_span_kind="guardrail") as span:
+        span.set_input(value=f"{tool_name}({arguments})\nmode: {mode}")
+        span.set_attribute(key="classifier_mode", value=mode)
+        yield span
+
+
+def record_decision(span, decision):
+    span.set_output(value=json.dumps(asdict(decision)), mime_type="application/json")
+    span.set_attribute(key="allowed", value=decision.allowed)
+    mark_ok(span)
 
 def record_tool_result(span, result):
     """Save a tool's result on its span; a result like {"error": "..."} marks the span failed."""

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from tools.registry import tool
@@ -11,26 +12,73 @@ def _resolve_workspace_path(path):
     return file_path
 
 
+def _resolve_readable_path(path):
+    """Resolve a path for reading: inside the workspace, or inside the read-only sessions folder."""
+    workspace_directory = Path.cwd().resolve()
+    sessions_directory = Path(os.environ["SESSIONS_DIRECTORY"]).resolve()
+    file_path = (workspace_directory / path).resolve()
+    readable = file_path.is_relative_to(workspace_directory) or file_path.is_relative_to(sessions_directory)
+    if not readable:
+        raise ValueError("read_file reads only the workspace and the sessions folder")
+    return file_path
+
+
 @tool
 def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> str:
-    """Read a workspace UTF-8 file with line numbers.
+    """Read a UTF-8 text file with line numbers, from the workspace or the read-only /sessions folder.
+
+    A header gives the file's size. Each call returns a limited number of characters: a read
+    stops at the last whole line that fits and its footer says where to continue.
 
     Args:
-        path: File path relative to the workspace.
+        path: File path relative to the workspace, or an absolute path inside /workspace or /sessions.
         start_line: First line to return, counting from 1.
-        end_line: Last line to return, inclusive. Reads to the end of the file when omitted.
+        end_line: Last line to return, inclusive. Reads as far as the character limit allows when omitted.
     """
     if start_line < 1 or (end_line is not None and end_line < start_line):
         raise ValueError("Line numbers must start at 1, with end_line at or after start_line")
-    lines = _resolve_workspace_path(path).read_text(encoding="utf-8").splitlines()
+    content = _resolve_readable_path(path).read_text(encoding="utf-8")
+    lines = content.splitlines()
     if not lines:
-        return "(empty file)"
+        return f"[{path}: empty file]"
     if start_line > len(lines):
         raise ValueError(f"start_line exceeds the file's {len(lines)} lines")
-    return "\n".join(
-        f"{line_number}: {line}"
-        for line_number, line in enumerate(lines[start_line - 1:end_line], start=start_line)
-    )
+    max_chars = int(os.environ["READ_FILE_MAX_CHARS"])
+    last_requested = len(lines) if end_line is None else min(end_line, len(lines))
+
+    # Take whole lines until the next one would pass the character limit.
+    shown = []
+    used_chars = 0
+    for line_number in range(start_line, last_requested + 1):
+        numbered_line = f"{line_number}: {lines[line_number - 1]}"
+        if used_chars + len(numbered_line) > max_chars:
+            break
+        shown.append(numbered_line)
+        used_chars += len(numbered_line) + 1
+
+    # A single line longer than the limit is cut; the rest is reachable with bash.
+    if not shown:
+        line = lines[start_line - 1]
+        kept_chars = max_chars - len(f"{start_line}: ")
+        shown.append(
+            f"{start_line}: {line[:kept_chars]} …[line cut: it has {len(line):,} characters. Slice the rest with bash, "
+            f"e.g. sed -n '{start_line}p' {path} | cut -c{kept_chars + 1}-{kept_chars + max_chars}; see Large outputs.]"
+        )
+    last_shown = start_line + len(shown) - 1
+
+    header = f"[{path}: {len(content):,} characters, {len(lines):,} lines. Showing lines {start_line}-{last_shown}.]"
+    if last_shown == len(lines):
+        footer = "[End of file]"
+    elif last_shown < last_requested:
+        end_argument = f", end_line={end_line}" if end_line is not None else ""
+        footer = (
+            f"[Stopped at line {last_shown}: the {max_chars:,}-character limit was reached. "
+            f'To continue: read_file(path="{path}", start_line={last_shown + 1}{end_argument}), '
+            f"or search it with bash.]"
+        )
+    else:
+        footer = f"[{len(lines) - last_shown:,} more lines after line {last_shown}.]"
+    return "\n".join([header, *shown, footer])
 
 
 @tool

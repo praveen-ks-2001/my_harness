@@ -14,7 +14,6 @@ wheels/
 .env.*
 !.env.example
 sessions/
-chat_history/
 examples/
 personal/
 workspace/

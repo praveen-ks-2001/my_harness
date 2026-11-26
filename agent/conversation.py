@@ -1,4 +1,5 @@
 import json
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -6,21 +7,33 @@ import config
 
 
 class Conversation:
-    """Keep the model's messages and their JSONL history together."""
+    """Keep the model's messages and their JSONL history together, in the session's own folder.
 
-    def __init__(self, workspace_directory, container_id, history_directory=None):
+    Create one with Conversation.start() for a new session, or Conversation.resume()
+    to continue a saved one.
+    """
+
+    def __init__(self, session_directory):
+        self.session_directory = Path(session_directory)
+        self.history_path = self.session_directory / config.HISTORY_FILE_NAME
         self.model_input = []
         self.turn_number = 0
         # The last call's exact input size, plus the characters of items added since.
         self.tokens_at_last_call = 0
         self.characters_since_last_call = 0
 
-        if history_directory is None:
-            history_directory = config.HISTORY_DIRECTORY
-        history_directory = Path(history_directory)
-        history_directory.mkdir(parents=True, exist_ok=True)
+    @classmethod
+    def start(cls, workspace_directory, container_id, sessions_directory=None):
+        """Create a new session folder and history file with its turn-zero session record, then add the system message.
+
+        The system message is filled with this session's paths, as the container sees
+        them, so the model can search its own history.
+        """
+        if sessions_directory is None:
+            sessions_directory = config.SESSIONS_DIRECTORY
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        self.history_path = history_directory / f"main_agent_{timestamp}.jsonl"
+        conversation = cls(Path(sessions_directory) / f"main_agent_{timestamp}")
+        conversation.session_directory.mkdir(parents=True)
         session_record = {
             "metadata": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -36,8 +49,74 @@ class Conversation:
                 "model": config.OPENAI_MODEL,
             },
         }
-        with self.history_path.open("x", encoding="utf-8") as history_file:
+        with conversation.history_path.open("x", encoding="utf-8") as history_file:
             history_file.write(json.dumps(session_record, ensure_ascii=False) + "\n")
+
+        container_session_directory = f"{config.CONTAINER_SESSIONS_DIRECTORY}/{conversation.session_directory.name}"
+        system_message = config.SYSTEM_MESSAGE_FILE.read_text(encoding="utf-8").format(
+            max_model_calls_per_turn=config.MAX_MODEL_CALLS_PER_TURN,
+            workspace_directory=config.CONTAINER_WORKSPACE_DIRECTORY,
+            sessions_directory=config.CONTAINER_SESSIONS_DIRECTORY,
+            session_directory=container_session_directory,
+            history_file=f"{container_session_directory}/{config.HISTORY_FILE_NAME}",
+            tasks_file=f"{container_session_directory}/{config.TASKS_FILE_NAME}",
+            # Output limits, so the model can plan its tool calls around them.
+            tool_output_max_chars=config.TOOL_OUTPUT_MAX_CHARS,
+            tool_output_head_chars=config.TOOL_OUTPUT_HEAD_CHARS,
+            tool_output_tail_chars=config.TOOL_OUTPUT_TAIL_CHARS,
+            read_file_max_chars=config.READ_FILE_MAX_CHARS,
+        )
+        conversation.append_text_message(system_message, message_type="system")
+        return conversation
+
+    @classmethod
+    def resume(cls, session_directory, container_id):
+        """Rebuild the model input from a session's history file and keep appending to that file.
+
+        The model input is the system message plus everything after the last
+        compaction_summary record (or after the system message if there is none),
+        exactly what it held when the session ended.
+        """
+        # Continue the turn numbering from the file.
+        conversation = cls(session_directory)
+        records = read_history(conversation.history_path)
+        conversation.turn_number = max(record["metadata"]["turn_number"] for record in records)
+
+        # Rebuild the model input: the system message, then everything after the last compaction.
+        message_types = [record["metadata"]["message_type"] for record in records]
+        system_index = message_types.index("system")
+        compaction_indexes = [index for index, message_type in enumerate(message_types) if message_type == "compaction_summary"]
+        first_index = compaction_indexes[-1] + 1 if compaction_indexes else system_index + 1
+        for record in [records[system_index], *records[first_index:]]:
+            if "message" not in record:
+                # Session and session_resumed records are file-only.
+                continue
+            api_item = record["message"]
+            conversation.model_input.append(api_item)
+            # Same token bookkeeping as during the live session.
+            usage = record["metadata"].get("usage")
+            if usage:
+                conversation.tokens_at_last_call = usage["input_tokens"] + usage["output_tokens"]
+                conversation.characters_since_last_call = 0
+            else:
+                conversation.characters_since_last_call += len(json.dumps(api_item, ensure_ascii=False))
+
+        # The API rejects a function call without a result, which a crash or Ctrl-C can leave.
+        answered_call_ids = {item["call_id"] for item in conversation.model_input if item.get("type") == "function_call_output"}
+        for item in list(conversation.model_input):
+            if item.get("type") == "function_call" and item["call_id"] not in answered_call_ids:
+                conversation.append_tool_result(item["call_id"], "Not run: the session ended before this tool call ran.")
+
+        # Note the resume, with its new container, in the file only.
+        conversation._write_history_record({
+            "metadata": {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "turn_number": conversation.turn_number,
+                "message_type": "session_resumed",
+            },
+            "session": {"container_id": container_id, "model": config.OPENAI_MODEL},
+        })
+        return conversation
 
     def append_text_message(self, text, message_type):
         """Build and record a system, developer, user, or assistant text message."""
@@ -57,19 +136,33 @@ class Conversation:
         for item in response.output:
             api_item = item.model_dump(exclude_none=True)
             message_type = api_item.get("role") or api_item["type"]
-            response_metadata = {"response_id": response.id}
+            extra_metadata = {"response_id": response.id}
             if item is response.output[-1]:
-                response_metadata["usage"] = response.usage.model_dump() if response.usage else None
-            self._record_item(api_item, message_type, response_metadata)
+                extra_metadata["usage"] = response.usage.model_dump() if response.usage else None
+            self._record_item(api_item, message_type, extra_metadata)
 
         if response.usage:
             self.tokens_at_last_call = response.usage.input_tokens + response.usage.output_tokens
             self.characters_since_last_call = 0
 
-    def append_tool_result(self, call_id, output):
-        """Build the result item linked to the model's function call."""
+    def append_tool_result(self, call_id, output, decision=None, offloaded_to=None):
+        """Build the result item linked to the model's function call.
+
+        The classifier's decision and the files holding a capped output in full, if given, are
+        saved in the history metadata only.
+        """
         api_item = {"type": "function_call_output", "call_id": call_id, "output": output}
-        self._record_item(api_item, "tool_result")
+        extra_metadata = {}
+        if decision:
+            extra_metadata["decision"] = asdict(decision)
+        if offloaded_to:
+            extra_metadata["offloaded_to"] = offloaded_to
+        self._record_item(api_item, "tool_result", extra_metadata)
+
+    def recent_user_messages(self, count):
+        """Return the text of the last few user-role messages in the model input."""
+        user_texts = [item["content"] for item in self.model_input if item.get("role") == "user"]
+        return user_texts[-count:]
 
     def estimated_input_tokens(self):
         """Estimate the next call's input: exact tokens so far plus about 4 characters per token."""
@@ -97,14 +190,14 @@ class Conversation:
         # Recorded directly, not through append_text_message, so the turn does not advance.
         self._record_item({"role": "user", "content": continuation_text}, "user")
 
-    def _record_item(self, api_item, message_type, response_metadata=None):
+    def _record_item(self, api_item, message_type, extra_metadata=None):
         """Write an enriched history record and keep the original item for the API."""
         history_record = {
             "metadata": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "turn_number": self.turn_number,
                 "message_type": message_type,
-                **(response_metadata or {}),
+                **(extra_metadata or {}),
             },
             "message": api_item,
         }
@@ -116,3 +209,45 @@ class Conversation:
     def _write_history_record(self, history_record):
         with self.history_path.open("a", encoding="utf-8") as history_file:
             history_file.write(json.dumps(history_record, ensure_ascii=False) + "\n")
+
+
+def read_history(history_path):
+    """Return every record of a history file, in order."""
+    with Path(history_path).open(encoding="utf-8") as history_file:
+        return [json.loads(line) for line in history_file if line.strip()]
+
+
+def saved_workspace(session_directory):
+    """Return the workspace folder recorded in a session's turn-zero session record."""
+    records = read_history(Path(session_directory) / config.HISTORY_FILE_NAME)
+    workspace_directory = Path(records[0]["session"]["workspace_directory"])
+    if not workspace_directory.is_dir():
+        raise ValueError(f"The session's workspace folder no longer exists: {workspace_directory}")
+    return workspace_directory
+
+
+def list_saved_sessions():
+    """Return every resumable session, newest first: (folder, first and last user message, turns, last active)."""
+    history_paths = sorted(
+        config.SESSIONS_DIRECTORY.glob(f"*/{config.HISTORY_FILE_NAME}"), key=lambda path: path.stat().st_mtime, reverse=True,
+    )
+    sessions = []
+    for history_path in history_paths:
+        records = read_history(history_path)
+        # Files from before the turn-zero session record existed cannot be resumed.
+        if not records or records[0].get("metadata", {}).get("message_type") != "session":
+            continue
+        user_messages = []
+        previous_type = None
+        for record in records:
+            message_type = record["metadata"]["message_type"]
+            # The continuation message after a compaction is not something the user typed.
+            if message_type == "user" and previous_type != "compaction_summary":
+                user_messages.append(record["message"]["content"])
+            previous_type = message_type
+        if not user_messages:
+            continue
+        last_turn = max(record["metadata"]["turn_number"] for record in records)
+        last_active = datetime.fromtimestamp(history_path.stat().st_mtime)
+        sessions.append((history_path.parent, user_messages[0], user_messages[-1], last_turn, last_active))
+    return sessions

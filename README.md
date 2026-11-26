@@ -17,27 +17,30 @@ uv run main.py
 `config.py` loads the project's `.env` file automatically using `python-dotenv`.
 Variables already set in the environment take priority over values in `.env`.
 
-At startup, enter an existing folder the tools may read and modify. Press Enter to
+At startup, choose **New session** or one of the recent saved sessions (arrow keys, then
+Enter); see Resuming a session below. For a new session, enter an existing folder the
+tools may read and modify. Press Enter to
 create or reuse the default `workspace/` folder in this project. Type `quit` or `exit`
 to finish the conversation, or `/compact` to summarize the conversation so far.
 
 The harness builds a small Docker image and starts one container for the session.
 Subsequent starts reuse Docker's build cache. The selected host folder is mounted
 read/write at `/workspace` inside that container. Paths containing spaces work.
-Selecting a folder that contains the harness or its history is refused, so those
+Selecting a folder that contains the harness or its sessions is refused, so those
 files and credentials stay outside the tool workspace.
 
 The Python conversation loop and model API client run on the host. All tool calls,
-including `current_time`, execute inside Docker. There is no local execution fallback
-if Docker is unavailable. The container is removed on normal exit or when an exception
+including `current_time`, execute inside Docker, except the task tools, which only
+store the model's arguments in the harness (see Tasks below). There is no local
+execution fallback if Docker is unavailable. The container is removed on normal exit or when an exception
 unwinds the session; workspace files remain on disk.
 
 The container runs as the host user's UID/GID, with outbound networking, a read-only root
 filesystem, and temporary writable `/tmp` storage. Besides the workspace, only the
-`chat_history/` folder is shared, read-only at `/chat_history`: the model can search
-this session and past ones, but cannot change them. The system message tells it the
-current session's file path and to search with `rg` and `jq` instead of reading whole
-files. The image contains Python, Bash, Git, ripgrep, jq, timezone data, Pydantic, `docstring-parser`,
+`sessions/` folder is shared, read-only at `/sessions`: the model can search this
+session and past ones, but cannot change them. The system message tells it the
+current session's folder and history file and to search with `rg` and `jq` instead of
+reading whole files. The image contains Python, Bash, Git, ripgrep, jq, timezone data, Pydantic, `docstring-parser`,
 and the `tools/` package; API
 credentials, chat history, and the rest of the harness are not copied into it.
 
@@ -45,11 +48,12 @@ credentials, chat history, and the rest of the harness are not copied into it.
 
 | Tool | Behavior |
 | --- | --- |
-| `read_file(path, start_line=1, end_line=None)` | Read UTF-8 text with one-based line numbers; optional bounds are inclusive. |
+| `read_file(path, start_line=1, end_line=None)` | Read UTF-8 text with one-based line numbers, from the workspace or read-only `/sessions`, at most `READ_FILE_MAX_CHARS` per call; see Large tool outputs below. |
 | `write_file(path, content, overwrite=False)` | Write a UTF-8 file and missing parent folders; replace an existing file only when `overwrite` is true. |
 | `edit_file(path, old_text, new_text)` | Replace an exact, nonempty text match that occurs only once. |
-| `run_command(command)` | Run Bash from the workspace and return stdout, stderr, exit code, and timeout status. |
+| `bash(command)` | Run Bash from the workspace and return stdout, stderr, exit code, and timeout status. |
 | `current_time(timezone="UTC")` | Return the current time in an IANA timezone. |
+| `create_tasks(tasks)`, `update_task(task_id, status, result=None)`, `read_tasks(task_id=None)` | Host tools for the session's task list; see Tasks below. |
 
 ### Adding a tool
 
@@ -73,10 +77,11 @@ imports. The image sets `PYTHONPATH=/opt/harness` so the package is importable, 
 also makes it importable from workspace scripts.
 
 File paths are relative to the workspace, or absolute paths inside it. The file tools
-resolve paths and refuse traversal or symlinks that lead outside the workspace.
+resolve paths and refuse traversal or symlinks that lead outside the workspace;
+`read_file` may also read `/sessions`, which is mounted read-only.
 `edit_file` preserves existing line endings and refuses missing or ambiguous matches.
 
-`run_command` supports shell syntax, scripts, searches (`rg`), Git, and package installation.
+`bash` supports shell syntax, scripts, searches (`rg`), Git, and package installation.
 Every call starts in the workspace; a `cd` does not persist into the next call.
 Nonzero exits are returned to the model as command results rather than hidden:
 
@@ -93,7 +98,7 @@ to return that result.
 network services. No container ports are published. Install Python dependencies in a
 workspace virtual environment or use `pip install --target /workspace/.packages ...`,
 since the container's system directories remain read-only. Packages stored in the
-workspace persist across sessions. A tool-call approval model is not implemented yet.
+workspace persist across sessions. Every tool call is checked first; see Tool-call classifier below.
 
 ## Code flow
 
@@ -103,28 +108,40 @@ Code is grouped by feature; each folder keeps its own prompts.
 main.py, config.py        entry point and settings
 agent/                    the main model: model.py, conversation.py, prompts/
 compaction/               compact.py, prompts/
+tool_classifier/          classifier.py, utils.py, prompts/
+tasks/                    task_list.py (the task list and its host tools)
+offload/                  offload.py (caps long tool outputs, saving the full text)
 observability/            tracing.py (Phoenix traces of model calls)
 sandbox/                  sandbox.py (Docker side of the host)
 tools/                    tool package that runs inside Docker
 utils/terminal.py         terminal input (prompt_toolkit) and output (Rich)
 ```
 
-- `main.py`: `start_agent()` reads user input; `run_loop()` calls the model until it
-  stops requesting tools, or until `MAX_MODEL_CALLS_PER_TURN` calls have been made in
-  that turn. It then prints an `[INFO]` notice and waits for the next user input.
-- `config.py`: history directory, prompt paths, OpenAI model name, model-call
-  limit per turn, compaction threshold, workspace paths, sandbox image/network
-  settings, and tool timeout, grouped by purpose. Project paths are relative to the
+- `main.py`: `start_agent()` sets up the session (session choice, sandbox,
+  conversation, task list); `user_input_loop()` reads user input and handles commands;
+  `run_loop()` calls the model until it stops requesting tools, or until
+  `MAX_MODEL_CALLS_PER_TURN` calls have been made in that turn. It then prints an
+  `[INFO]` notice and waits for the next user input.
+- `config.py`: sessions folder, prompt paths, OpenAI model name, model-call
+  limit per turn, compaction threshold, tool output limits, workspace paths, sandbox
+  image/network settings, and tool timeout, grouped by purpose. Project paths are relative to the
   project directory. The model name is read from `OPENAI_MODEL` in the environment;
   it can also be set directly in this file.
 - `agent/model.py`: `stream_model()` starts a streamed API request.
-- `agent/conversation.py`: `Conversation` owns the message list, turn number, and history
-  file path. Its methods build message dictionaries and record them in context and JSONL.
-- `agent/prompts/system_message.md`: system instructions, read once by `start_agent()`,
-  which fills in `{history_file}` and `{history_directory}` with the container paths.
+- `agent/conversation.py`: `Conversation` owns the message list, turn number, session
+  folder, and history file path. Its methods build message dictionaries and record them in context and JSONL.
+- `agent/prompts/system_message.md`: system instructions, read by `Conversation.start()`,
+  which fills in the container paths (`{workspace_directory}`, `{sessions_directory}`,
+  `{session_directory}`, `{history_file}`, `{tasks_file}`), `{max_model_calls_per_turn}`,
+  and the output limits from `config.py`, so the model can plan its tool calls around them.
+  Its sections: Harness, Workspace, Tools (one line per tool on when to use it), Tasks,
+  Large outputs, Session files, Context management, and Session context.
+  A resumed session reuses the system message saved in its file.
 - `compaction/compact.py`: `needs_compaction()` and `compact_conversation()`, which also
   makes the tool-free summary call; `compaction/prompts/` holds its system prompt and
   two templates. See Compaction below.
+- `tool_classifier/`: `ToolClassifier` decides whether each tool call runs; see Tool-call
+  classifier below.
 - `observability/tracing.py`: `start_tracing()`, called first in `start_agent()`; see Tracing below.
 - `sandbox/sandbox.py`: `Sandbox` builds/starts the container, executes argument lists in
   it, sends tool calls to the container's runner with `call_tool()`, and removes the
@@ -155,7 +172,7 @@ Each label is followed by its content on a new line.
 The loop passes a single `conversation` object between turns:
 
 ```python
-conversation = Conversation(workspace_directory, sandbox.container_id)
+conversation = Conversation.start(workspace_directory, sandbox.container_id)
 conversation.append_text_message("Hello", message_type="user")
 with stream_model(client, conversation.model_input) as stream:
     print_stream(stream)
@@ -175,8 +192,9 @@ record containing metadata and the item, then appends only the original item to
 The turn counter and file writing also live in this method. The leading underscore
 marks it as an internal helper.
 
-Every run creates `chat_history/main_agent_YYYYMMDD_HHMMSS_microseconds.jsonl`.
-The first line is a turn-zero session record, before any conversation items:
+Every run creates its own folder, `sessions/main_agent_YYYYMMDD_HHMMSS_microseconds/`,
+with the conversation history in `history.jsonl` inside it. The first line is a
+turn-zero session record, before any conversation items:
 
 ```json
 {
@@ -220,7 +238,46 @@ Summing `usage` across the file gives the session's token use.
 
 `conversation.model_input` contains only the original API items, without the file metadata.
 Items are saved immediately, and `call_id` links each tool result to its call.
-The history folder is gitignored. Existing logs keep their original format and metadata.
+The sessions folder is gitignored. Existing logs keep their original format and metadata.
+
+## Large tool outputs
+
+Two limits in `config.py` keep any single tool result from flooding the context.
+
+**The output cap.** After every tool call, Docker or host, `run_loop()` passes the result
+through `cap_tool_output()` in `offload/offload.py`. A result up to `TOOL_OUTPUT_MAX_CHARS`
+(10,000) is unchanged. A longer one is saved in full to the session folder's
+`tool_outputs/<call_id>.txt`, and the model sees its first `TOOL_OUTPUT_HEAD_CHARS` (2,000)
+and last `TOOL_OUTPUT_TAIL_CHARS` (1,000) characters around a marker:
+
+```text
+[… output truncated: 183,402 characters, 4,120 lines in total. Full output:
+/sessions/<session>/tool_outputs/call_x.stdout.txt. Slice or search it with bash; see Large outputs.]
+```
+
+In a JSON result such as `bash`'s, each long string field (`stdout`, `stderr`) is
+capped on its own and saved as `<call_id>.<field>.txt`, so the result stays valid JSON.
+The terminal, Phoenix, and the history show the capped result, and the history metadata
+lists the saved files as `offloaded_to`. Only the harness writes these files; the
+container sees them read-only. A `cat` of a big file through `bash` is simply
+capped again.
+
+**Paged reads.** `read_file` returns at most `READ_FILE_MAX_CHARS` (8,000) characters per call,
+passed to the container as an environment variable and kept below the cap so a page is
+never offloaded. Every read starts with the file's size and the lines shown, and stops at
+the last whole line that fits:
+
+```text
+[notes.txt: 183,402 characters, 4,120 lines. Showing lines 1-212.]
+1: …
+[Stopped at line 212: the 8,000-character limit was reached. To continue: read_file(path="notes.txt", start_line=213), or search it with bash.]
+```
+
+Other footers are `[End of file]` and `[N more lines after line M.]`. A single line longer
+than the limit is cut, with a `sed … | cut -c…` command for reading the rest through
+`bash`. The markers only hint; the full instructions (check the size, search, take line
+ranges or character slices, parse structured data with `jq` or Python) are in the system
+message's Large outputs section, which states the limits from `config.py`.
 
 ## Compaction
 
@@ -232,12 +289,22 @@ default, in `config.py`), or when you type `/compact`, the conversation is compa
 1. The conversation is split into units. A unit is one user message and everything the
    model did in reply (reasoning, tool calls, tool results, answers) until the next one.
 2. The summarizer gets `compaction/prompts/system_prompt.md` as its system message and,
-   as its user message, `compaction/prompts/input_template.md` filled with the original system message
-   and every unit as XML (`<user>`, `<assistant>`, `<function_call>`, `<tool_result>`).
-   Encrypted reasoning is left out.
+   as its user message, `compaction/prompts/input_template.md` filled with the original system message,
+   every unit as XML (`<user>`, `<assistant>`, `<function_call>`, `<tool_result>`), and
+   the task list. Encrypted reasoning is left out. Its prompt is in sections: Input,
+   what is attached after the summary (so it isn't repeated), Rules (in order, specific,
+   nothing invented, only real user messages count as the user), the ten summary
+   sections (including the user's constraints, preferences, and corrections, quoted word
+   for word), Next step (only if unfinished, quoting the latest request), and Format.
 3. `model_input` becomes the original system message plus one user message,
-   `compaction/prompts/continuation_template.md` filled with the summary and the last two units
-   verbatim. The loop then carries on, even in the middle of a turn.
+   `compaction/prompts/continuation_template.md` filled with the summary, the last two units
+   verbatim, and a `<task_list>` block. It ends by pointing the model to its history file
+   for exact details and telling it not to recap the summary. The loop then carries on,
+   even in the middle of a turn.
+
+The task list block is `TaskList.render()`: the harness's own copy as JSON, written by
+code rather than by the summarizer, so it is exact after any number of compactions.
+The summarizer is told not to copy it, only to stay consistent with it.
 
 A later compaction summarizes that continuation message along with everything after it.
 With two or fewer units there is nothing to shrink, so compaction refuses. If compaction
@@ -284,10 +351,13 @@ and timing. Traces are sent from a background thread.
 `main.py` groups the spans with the `with` blocks from `observability/tracing.py`:
 
 ```
-session  main_agent_<timestamp>      trace_session: the whole run, named after its history file
+session  main_agent_<timestamp>      trace_session: the whole run, named after its session folder
 └─ turn 1                            trace_turn: one trace per user turn (input and final answer)
    ├─ Response                       model call, traced automatically
-   ├─ current_time                   trace_tool: tool name, arguments, result
+   ├─ bash                           trace_tool: one span per tool call (arguments, result or rejection)
+   │  └─ classify bash               trace_tool_decision: the classifier's decision
+   │     └─ Response                 the classifier's model call (auto mode)
+   ├─ create_tasks                   task tools: a tool span with no classify span
    ├─ compaction                     trace_compaction: trigger and token estimates
    │  └─ Response                    the summary call
    └─ Response
@@ -300,5 +370,98 @@ conversation works normally, but quitting waits about ten seconds while export r
 set `TRACING_ENABLED = False` in `config.py` to turn tracing off; the `with` blocks then
 do nothing. Tool and compaction spans show OK (✓) or error (red, with the reason).
 A tool counts as failed when its result is `{"error": ...}`, such as a refused path or
-a Docker failure; a `run_command` with a nonzero exit code is a normal result, since the
+a Docker failure; a `bash` call with a nonzero exit code is a normal result, since the
 tool itself worked. Turn spans have no status unless an exception occurs.
+
+## Tool-call classifier
+
+Before each tool call runs, `run_loop()` asks `ToolClassifier.decide()` in
+`tool_classifier/classifier.py`. The mode is printed at startup, starts from
+`TOOL_CLASSIFIER_MODE` in `config.py`, and can be changed during a session:
+
+| Command | Behavior |
+| --- | --- |
+| `/tool-classifier auto` | Default. A separate model (`CLASSIFIER_MODEL`) decides each call. |
+| `/tool-classifier allow_all` | No checks; every call runs. |
+| `/tool-classifier manual` | You answer `y` or `n` for each call, optionally with a note, such as `n, use git clean instead`. |
+| `/tool-classifier` | Show the current mode. |
+
+Every decider returns `Decision(allowed, decided_by, reason)`, defined in `classifier.py`.
+`reason` is optional, so a future decider that only says yes or no, such as a decision
+model, fits the same shape: it is one more `ToolClassifier` method returning a `Decision`.
+
+In `auto` mode, `ToolClassifier._classify_with_llm()` fills `prompts/input_template.md` with the last two
+user messages (each cut to 2,000 characters), the reasoning summary of the response
+that requested the call, and the call itself, and sends it with
+`prompts/system_prompt.md`. The model must answer with structured output:
+`{"allowed": true|false, "reason": "..."}`. If the call fails or the answer is
+unreadable, the tool call is denied.
+
+A rejected call does not run. The model receives, as that call's result:
+
+```text
+Not run: this tool call was rejected by the classifier. Reason: deletes files outside the task.
+```
+
+The history file records the decision in that tool result's metadata, for example
+`"decision": {"allowed": false, "decided_by": "user", "reason": "use git clean instead"}`.
+In Phoenix, each decision is a `GUARDRAIL` span named `classify <tool>` inside that call's
+tool span, and the classifier's model call nests inside it. A rejected call still gets a
+tool span, whose output is the rejection message. Task tools skip the classifier (see Tasks).
+
+## Tasks
+
+For work with several steps, the model keeps a task list with three host tools. They
+run in the harness, not in Docker: they take only JSON arguments, never a path or a
+command, and only store them. `TaskList` in `tasks/task_list.py` holds the list and saves
+it to the session folder's `tasks.json` after every change; the container sees that file
+read-only at `/sessions/<session>/tasks.json`.
+
+| Tool | Model gives | Returns |
+| --- | --- | --- |
+| `create_tasks(tasks)` | Each task's `title`, `description`, and `acceptance_criteria` | The new tasks |
+| `update_task(task_id, status, result=None)` | `status` (`pending`, `in_progress`, `done`, `blocked`) and `result` | The updated task |
+| `read_tasks(task_id=None)` | An optional id | Every task, or that one |
+
+Every returned task has all its fields:
+
+```json
+{"id": 1, "title": "…", "description": "…", "acceptance_criteria": "…", "status": "pending", "result": null, "owner": "main_agent"}
+```
+
+The harness assigns `id`, the initial `pending` status, and `owner`. `blocked` means the
+model tried but cannot finish the task now, for example because a dependency is missing;
+it can go back to `in_progress` later. `update_task` refuses `done` or `blocked` without a
+nonempty `result` (for blocked: what was tried and what stops it); a rule break or
+invalid argument comes back to the model as `{"error": ...}`. The schemas come from the methods' type hints and
+docstrings, through the same `build_schema()` as the Docker tools, and
+`stream_model()` sends them alongside the Docker tools' schemas. Task tool calls skip
+the classifier, since they cannot touch files or the network; their history metadata
+records `"decided_by": "harness"`. They still get a tool span in Phoenix. A resumed
+session reloads its `tasks.json`, and each compaction puts the current list into the
+continuation message (see Compaction).
+
+## Resuming a session
+
+At startup, `choose_session()` in `utils/terminal.py` lists saved sessions, newest
+first, `RESUME_SESSIONS_PER_PAGE` at a time, with **Next page →** and **← Previous page**
+options. Each row shows when the session was last active, its turn count, and your first
+and last message. Sessions from before the turn-zero session record existed (no
+workspace recorded) are not listed. Choosing one:
+
+1. Reuses the workspace from its session record (an error if that folder is gone).
+2. Starts a fresh sandbox container, since containers are removed on exit.
+3. Calls `Conversation.resume()`, which keeps appending to the **same** history file, so
+   the Phoenix session (named after the session folder) continues too. It rebuilds `model_input`
+   as the saved system message plus every item after the last `compaction_summary`
+   record, or after the system message if the session was never compacted. Token
+   counters are replayed from the stored `usage`, so the compaction check stays exact.
+   A function call left without a result (after a crash or Ctrl-C) gets the result
+   "Not run: the session ended before this tool call ran." A file-only
+   `session_resumed` record saves the new container id and model.
+4. Reprints the last `RESUME_REPLAY_TURNS` turns from the whole file, so you see your
+   real conversation even where the model now sees a compaction summary.
+
+The turn number continues from the file, and the classifier starts from
+`TOOL_CLASSIFIER_MODE`.
+

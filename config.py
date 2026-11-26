@@ -12,21 +12,43 @@ load_dotenv(PROJECT_DIRECTORY / ".env")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "")
 MAX_MODEL_CALLS_PER_TURN = 20
 
+# Resuming: sessions per page in the startup menu, and turns reprinted after choosing one.
+RESUME_SESSIONS_PER_PAGE = 10
+RESUME_REPLAY_TURNS = 10
+
 # Compaction: summarize the conversation once its input passes this share of the window.
 CONTEXT_WINDOW_TOKENS = 100_000
 COMPACT_AT_FRACTION = 0.7
 
-# Prompt and conversation history.
+# Tool-call classifier mode: auto | allow_all | manual.
+TOOL_CLASSIFIER_MODE = "auto"
+CLASSIFIER_MODEL = "gpt-6-luna"
+
+# Prompt files.
 SYSTEM_MESSAGE_FILE = PROJECT_DIRECTORY / "agent" / "prompts" / "system_message.md"
 COMPACTION_SYSTEM_PROMPT_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "system_prompt.md"
 COMPACTION_INPUT_TEMPLATE_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "input_template.md"
 COMPACTION_CONTINUATION_TEMPLATE_FILE = PROJECT_DIRECTORY / "compaction" / "prompts" / "continuation_template.md"
-HISTORY_DIRECTORY = PROJECT_DIRECTORY / "chat_history"
+TOOL_CLASSIFIER_SYSTEM_PROMPT_FILE = PROJECT_DIRECTORY / "tool_classifier" / "prompts" / "system_prompt.md"
+TOOL_CLASSIFIER_INPUT_TEMPLATE_FILE = PROJECT_DIRECTORY / "tool_classifier" / "prompts" / "input_template.md"
+
+# Session folders: one per run, holding its history; the container sees them read-only.
+SESSIONS_DIRECTORY = PROJECT_DIRECTORY / "sessions"
+CONTAINER_SESSIONS_DIRECTORY = "/sessions"
+HISTORY_FILE_NAME = "history.jsonl"
+TASKS_FILE_NAME = "tasks.json"
+TOOL_OUTPUTS_DIRECTORY_NAME = "tool_outputs"
+
+# Tool output limits: a longer result is saved in the session's tool_outputs/ folder and the model sees its head and tail.
+TOOL_OUTPUT_MAX_CHARS = 10_000
+TOOL_OUTPUT_HEAD_CHARS = 2_000
+TOOL_OUTPUT_TAIL_CHARS = 1_000
+# Largest page read_file returns; below TOOL_OUTPUT_MAX_CHARS, so a page is never offloaded.
+READ_FILE_MAX_CHARS = 8_000
 
 # Workspace locations.
 DEFAULT_WORKSPACE_DIRECTORY = PROJECT_DIRECTORY / "workspace"
 CONTAINER_WORKSPACE_DIRECTORY = "/workspace"
-CONTAINER_HISTORY_DIRECTORY = "/chat_history"
 
 # Tracing in a local Phoenix server; the README's Tracing section has the docker run command.
 TRACING_ENABLED = True

@@ -8,11 +8,12 @@ def needs_compaction(conversation):
     return conversation.estimated_input_tokens() > threshold
 
 
-def compact_conversation(client, conversation, trigger):
-    """Replace the model input with a summary plus the last two units verbatim.
+def compact_conversation(client, conversation, task_list, trigger):
+    """Replace the model input with a summary, the last two units verbatim, and the task list.
 
     A unit is one user message and everything the model did in reply, up to the next
-    user message. The summarizer sees every unit, including the last two.
+    user message. The summarizer sees every unit, including the last two. The task list
+    is rendered by code from the harness's copy, so it is exact however the summary reads.
     """
     system_message = conversation.model_input[0]["content"]
     conversation_items = conversation.model_input[1:]
@@ -22,12 +23,14 @@ def compact_conversation(client, conversation, trigger):
             f"Nothing to compact: there are {len(units)} unit(s), and the last two are kept verbatim."
         )
 
+    # Summarize everything with a plain, tool-free call: the summarizer only reads and writes text.
+    task_list_text = task_list.render()
     system_prompt = config.COMPACTION_SYSTEM_PROMPT_FILE.read_text(encoding="utf-8")
     input_text = config.COMPACTION_INPUT_TEMPLATE_FILE.read_text(encoding="utf-8").format(
         system_message=system_message,
         conversation=render_items(conversation_items),
+        task_list=task_list_text,
     )
-    # A plain, tool-free call: the summarizer only reads and writes text.
     response = client.responses.create(
         model=config.OPENAI_MODEL,
         input=[
@@ -40,10 +43,12 @@ def compact_conversation(client, conversation, trigger):
     if not summary:
         raise RuntimeError("The summary came back empty.")
 
+    # Restart the model input from the summary, the last two units, and the task list.
     continuation_text = config.COMPACTION_CONTINUATION_TEMPLATE_FILE.read_text(encoding="utf-8").format(
         summary=summary,
         unit_1=render_items(units[-2]),
         unit_2=render_items(units[-1]),
+        task_list=task_list_text,
     )
     conversation.replace_with_compaction(response, continuation_text, trigger)
 
